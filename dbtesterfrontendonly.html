@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Sjabloon: Offline-First Tester</title>
+    
+    <!-- UI Frameworks -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Vereiste Bibliotheken -->
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    
+    <!-- De Offline Manager (ervan uitgaande dat deze in hetzelfde mapje staat) -->
+    <script src="offline_manager.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0b0f1a; color: #e2e8f0; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+        .card-active { border-color: #38bdf8 !important; background-color: rgba(56, 189, 248, 0.05); }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+
+    <div class="max-w-[1400px] mx-auto">
+        <!-- HEADER & STATUS BAR -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 bg-slate-900/50 p-5 rounded-3xl border border-white/5 shadow-2xl">
+            <div>
+                <h1 class="text-2xl font-black text-white tracking-tighter uppercase">App <span class="text-sky-400">Template</span></h1>
+                <p class="text-gray-500 text-[10px] font-bold uppercase tracking-widest">Sjabloon voor Offline-First Interactie</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <!-- Status Indicators (Worden aangestuurd door de Manager) -->
+                <div id="conn-indicator" class="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                    <div id="conn-dot" class="w-2 h-2 rounded-full bg-gray-500"></div>
+                    <span id="conn-text">Checking...</span>
+                </div>
+                <div id="sync-indicator" class="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-gray-500 text-[10px] font-black uppercase tracking-widest">
+                    <i class="fas fa-sync-alt" id="sync-icon"></i> <span id="sync-text">Idle</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- KOLOM 1: INPUT & CONTROLES -->
+            <div class="lg:col-span-4 space-y-6">
+                
+                <!-- Formulier -->
+                <section class="bg-slate-900 border border-white/5 p-6 rounded-3xl shadow-xl">
+                    <h2 class="text-xs font-black text-white mb-4 uppercase tracking-widest flex items-center gap-2">
+                        <i class="fas fa-edit text-sky-400"></i> Invoer Editor
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-[9px] font-black uppercase text-gray-500 ml-1">Collectie</label>
+                            <select id="inp-collection" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-gray-300 focus:border-sky-500/50 outline-none">
+                                <option value="items">Standaard Items</option>
+                                <option value="logs">Systeem Logs</option>
+                            </select>
+                        </div>
+                        <input type="text" id="inp-title" placeholder="Titel van document..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-sky-500/50 outline-none">
+                        <textarea id="inp-content" placeholder="Beschrijving of data..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm h-24 text-white focus:border-sky-500/50 outline-none"></textarea>
+                        
+                        <div id="edit-mode-info" class="hidden p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[10px] font-mono text-amber-500">
+                            Bewerken: <span id="edit-target-id" class="font-bold"></span>
+                        </div>
+
+                        <button onclick="ui.handleSave()" class="w-full py-4 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black rounded-2xl transition-all uppercase text-xs tracking-widest shadow-lg shadow-sky-500/10">
+                            <i class="fas fa-save mr-2"></i> Document Opslaan
+                        </button>
+                        <button id="btn-cancel" onclick="ui.resetForm()" class="hidden w-full text-[10px] text-gray-500 font-bold uppercase hover:text-rose-500 transition-colors">
+                            Bewerken Annuleren
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Outbox Monitor -->
+                <section class="bg-slate-900 border border-white/5 rounded-3xl overflow-hidden shadow-xl">
+                    <div class="px-6 py-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                        <h2 class="text-[10px] font-black text-white uppercase tracking-widest italic">Wachtrij (Outbox)</h2>
+                        <span id="outbox-badge" class="bg-sky-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full">0</span>
+                    </div>
+                    <div id="outbox-container" class="p-4 h-40 overflow-y-auto custom-scrollbar space-y-2">
+                        <!-- Outbox items komen hier -->
+                    </div>
+                </section>
+
+                <!-- Systeem Console -->
+                <section class="bg-black border border-white/5 rounded-3xl overflow-hidden flex flex-col h-[300px]">
+                    <div class="px-5 py-3 border-b border-white/5 bg-white/5">
+                        <h2 class="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Live Systeem Log</h2>
+                    </div>
+                    <div id="log-container" class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-1 text-[9px] mono opacity-70"></div>
+                </section>
+            </div>
+
+            <!-- KOLOM 2: DATA INSPECTIE -->
+            <div class="lg:col-span-8 space-y-6">
+                
+                <!-- Dexie View -->
+                <section class="bg-slate-900 border border-white/5 rounded-[2rem] overflow-hidden shadow-2xl">
+                    <div class="px-8 py-5 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                        <h2 class="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-database text-sky-400"></i> Lokale Cache (Dexie)
+                        </h2>
+                        <button onclick="ui.resetLocalDb()" class="p-2 text-gray-600 hover:text-rose-500 transition-all"><i class="fas fa-trash-alt"></i></button>
+                    </div>
+                    <div id="local-cache-grid" class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar">
+                        <!-- Data kaarten -->
+                    </div>
+                </section>
+
+                <!-- Server View -->
+                <section class="bg-slate-900 border border-white/5 rounded-[2rem] overflow-hidden shadow-2xl">
+                    <div class="px-8 py-5 border-b border-white/5 bg-sky-500/5 flex justify-between items-center">
+                        <h2 class="font-black text-sky-400 text-sm uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-cloud text-sky-400"></i> Server Status (API)
+                        </h2>
+                        <div class="flex gap-2">
+                            <button onclick="ui.refreshServerView()" class="px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all">
+                                <i class="fas fa-sync-alt mr-1"></i> Verversen
+                            </button>
+                            <button onclick="ui.wipeServerData()" class="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all">
+                                <i class="fas fa-broom mr-1"></i> Wis Server
+                            </button>
+                        </div>
+                    </div>
+                    <div class="p-0 overflow-x-auto">
+                        <table class="w-full text-left text-[11px] border-collapse">
+                            <thead class="bg-black/20 text-gray-500 uppercase font-black text-[9px]">
+                                <tr>
+                                    <th class="px-8 py-4 border-b border-white/5">Collectie</th>
+                                    <th class="px-8 py-4 border-b border-white/5">MongoDB _id</th>
+                                    <th class="px-8 py-4 border-b border-white/5">Data</th>
+                                </tr>
+                            </thead>
+                            <tbody id="server-table-body" class="text-gray-400">
+                                <!-- Tabel rijen -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Stress Test Panel -->
+                <section class="bg-amber-500/5 border border-amber-500/10 p-6 rounded-3xl flex flex-col md:flex-row gap-6 items-center">
+                    <div class="flex-1">
+                        <h2 class="text-xs font-black text-amber-500 uppercase tracking-widest mb-1">Stress Test Modus</h2>
+                        <p class="text-[10px] text-gray-500">Valideer ID-consistentie onder hoge druk (Race Conditions).</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <button onclick="ui.runConcurrentTest()" class="px-5 py-2.5 bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all">
+                            Concurrent Test
+                        </button>
+                        <button onclick="ui.runSequentialTest()" class="px-5 py-2.5 border border-sky-500/40 text-sky-400 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-sky-500/10 transition-all">
+                            Sequential Test
+                        </button>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- LOGICA SCRIPT -->
+    <script>
+        /**
+         * UI CONTROLLER
+         * Handelt alle visuele interactie af en communiceert met de OfflineManager.
+         */
+        class UIController {
+            constructor() {
+                // Initialisatie van de motor (Configureer hier je API URL en Client ID)
+                this.manager = new OfflineManager('http://10.10.2.20:5000', 'sandman', 'template_app');
+                
+                // State voor bewerken
+                this.editingRecord = null;
+                
+                this.init();
+            }
+
+            init() {
+                // 1. Luister naar Sync updates van de manager
+                this.manager.onSyncChange = (count) => this.updateSyncUI(count);
+                this.manager.onDataChanged = () => this.refreshViews();
+
+                // 2. Browser status monitoring
+                window.addEventListener('online', () => this.updateConnUI());
+                window.addEventListener('offline', () => this.updateConnUI());
+                this.updateConnUI();
+
+                // 3. Start de loop voor het verversen van de UI
+                setInterval(() => {
+                    this.renderLocalGrid();
+                    this.renderOutbox();
+                }, 1500);
+
+                this.log("UI Controller operationeel.");
+                this.refreshViews();
+            }
+
+            // --- UI HELPERS ---
+
+            log(msg, type = 'info') {
+                const container = document.getElementById('log-container');
+                const line = document.createElement('div');
+                line.className = type === 'error' ? 'text-rose-500' : (type === 'success' ? 'text-sky-400 font-bold' : 'text-emerald-500/40');
+                line.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                container.prepend(line);
+            }
+
+            updateConnUI() {
+                const dot = document.getElementById('conn-dot');
+                const text = document.getElementById('conn-text');
+                const isOnline = navigator.onLine;
+                dot.className = isOnline ? "w-2 h-2 rounded-full bg-emerald-500 animate-pulse" : "w-2 h-2 rounded-full bg-rose-500";
+                text.innerText = isOnline ? "Online" : "Offline Mode";
+                if(isOnline) this.manager.syncOutbox();
+            }
+
+            updateSyncUI(count) {
+                const text = document.getElementById('sync-text');
+                const icon = document.getElementById('sync-icon');
+                const badge = document.getElementById('outbox-badge');
+                
+                badge.innerText = count;
+                text.innerText = count > 0 ? `${count} Taken...` : "Gesynchroniseerd";
+                icon.className = count > 0 ? "fas fa-sync-alt animate-spin text-sky-400" : "fas fa-check text-emerald-500";
+            }
+
+            // --- DATA ACTIES ---
+
+            async handleSave() {
+                const collection = document.getElementById('inp-collection').value;
+                const title = document.getElementById('inp-title').value;
+                const content = document.getElementById('inp-content').value;
+
+                if (!title) return this.log("Titel verplicht", "error");
+
+                // Maak het data object klaar
+                const data = { title, content, updated_at: Date.now() };
+
+                // Als we aan het bewerken zijn, sturen we de bestaande ID's mee
+                if (this.editingRecord) {
+                    if (this.editingRecord._id) data._id = this.editingRecord._id;
+                    if (this.editingRecord.id) data.id = this.editingRecord.id;
+                    this.log(`Update verzonden voor: ${title}`);
+                } else {
+                    this.log(`Nieuw document verzonden: ${title}`);
+                }
+
+                // Gebruik de 'Smart' save van de manager
+                await this.manager.saveSmartDocument(collection, data);
+                
+                this.resetForm();
+                this.refreshViews();
+            }
+
+            async deleteItem(col, id) {
+                this.log(`Verwijderen van ID: ${id}`, 'error');
+                await this.manager.deleteSmartDocument(col, id);
+                this.refreshViews();
+            }
+
+            startEdit(item) {
+                this.editingRecord = item;
+                
+                // Vul formulier
+                document.getElementById('inp-collection').value = item.collection;
+                document.getElementById('inp-title').value = item.title;
+                document.getElementById('inp-content').value = item.content || '';
+                
+                // UI status
+                document.getElementById('edit-mode-info').classList.remove('hidden');
+                document.getElementById('edit-target-id').innerText = item._id || `Local:${item.id}`;
+                document.getElementById('btn-cancel').classList.remove('hidden');
+                document.getElementById('form-container').classList.add('ring-2', 'ring-sky-500/20');
+            }
+
+            resetForm() {
+                this.editingRecord = null;
+                document.getElementById('inp-title').value = '';
+                document.getElementById('inp-content').value = '';
+                document.getElementById('edit-mode-info').classList.add('hidden');
+                document.getElementById('btn-cancel').classList.add('hidden');
+                document.getElementById('form-container').classList.remove('ring-2', 'ring-sky-500/20');
+            }
+
+            // --- RENDERING ---
+
+            async refreshViews() {
+                await this.renderLocalGrid();
+                // We verversen de server data niet bij elke verandering om traffic te beperken
+            }
+
+            async renderLocalGrid() {
+                const collection = document.getElementById('inp-collection').value;
+                const items = await this.manager.getSmartCollection(collection);
+                const container = document.getElementById('local-cache-grid');
+                
+                if (items.length === 0) {
+                    container.innerHTML = `<div class="col-span-full py-10 text-center text-gray-600 italic text-xs underline decoration-white/5 underline-offset-8">Geen lokale cache gevonden voor ${collection}</div>`;
+                    return;
+                }
+
+                container.innerHTML = items.map(item => `
+                    <div onclick="ui.startEdit(${JSON.stringify(item).replace(/"/g, '&quot;')})" 
+                         class="card-clickable bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between items-center group hover:border-sky-500/30 transition-all cursor-pointer ${this.editingRecord && (this.editingRecord.id === item.id) ? 'card-active' : ''}">
+                        <div class="min-w-0">
+                            <h3 class="text-xs font-bold text-white truncate">${item.title}</h3>
+                            <div class="text-[9px] mono text-gray-500 mt-1">
+                                DEX_ID: ${item.id} | SRV_ID: <span class="${item._id ? 'text-emerald-400 font-bold' : 'text-amber-500'}">${item._id || 'Pending...'}</span>
+                            </div>
+                        </div>
+                        <button onclick="event.stopPropagation(); ui.deleteItem('${item.collection}', '${item._id || item.id}')" class="p-2 text-gray-700 hover:text-rose-500 transition-all">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                `).join('');
+            }
+
+            async renderOutbox() {
+                const items = await this.manager.db.outbox.orderBy('id').toArray();
+                const container = document.getElementById('outbox-container');
+                if (items.length === 0) {
+                    container.innerHTML = `<div class="text-[9px] text-gray-600 italic">Geen wachtende taken.</div>`;
+                    return;
+                }
+                container.innerHTML = items.map(item => `
+                    <div class="p-2 rounded-xl bg-white/5 border-l-2 ${item.action === 'DELETE' ? 'border-rose-500' : 'border-amber-500'} text-[9px] mono">
+                        <span class="font-bold uppercase ${item.action === 'DELETE' ? 'text-rose-500' : 'text-amber-500'}">${item.action}</span>
+                        <span class="text-gray-400 ml-1 truncate block">${item.payload.title || item.payload._id}</span>
+                    </div>
+                `).join('');
+            }
+
+            async refreshServerView() {
+                this.log("Ophalen van server data...", "success");
+                const body = document.getElementById('server-table-body');
+                body.innerHTML = '<tr><td colspan="3" class="px-8 py-10 animate-pulse italic text-center">Data ophalen via Gateway...</td></tr>';
+                
+                try {
+                    const collections = ['items', 'logs'];
+                    let all = [];
+                    for(const col of collections) {
+                        const res = await this.manager.gateway.getCollection(col);
+                        all = all.concat(res.map(i => ({...i, col})));
+                    }
+
+                    if (all.length === 0) {
+                        body.innerHTML = '<tr><td colspan="3" class="px-8 py-10 text-center italic">Server is momenteel leeg.</td></tr>';
+                        return;
+                    }
+
+                    body.innerHTML = all.map(i => `
+                        <tr class="hover:bg-white/5 transition-colors border-b border-white/5">
+                            <td class="px-8 py-4"><span class="px-1.5 py-0.5 bg-sky-500/10 text-sky-400 rounded text-[8px] font-black uppercase">${i.col}</span></td>
+                            <td class="px-8 py-4 font-mono text-emerald-500 text-[10px]">${i._id}</td>
+                            <td class="px-8 py-4 font-bold text-white">${i.title}</td>
+                        </tr>
+                    `).join('');
+                } catch(e) {
+                    body.innerHTML = `<tr><td colspan="3" class="px-8 py-4 text-rose-500">Gateway Error: ${e.message}</td></tr>`;
+                }
+            }
+
+            async wipeServerData() {
+                if(!confirm("De server data wordt onherstelbaar gewist. Doorgaan?")) return;
+                this.log("Server wipe gestart...", "error");
+                const cols = ['items', 'logs'];
+                for(const col of cols) {
+                    const items = await this.manager.gateway.getCollection(col);
+                    for(const i of items) { await this.manager.gateway.deleteDocument(col, i._id); }
+                }
+                await this.refreshServerView();
+            }
+
+            async resetLocalDb() {
+                if(!confirm("Lokale cache wissen?")) return;
+                await this.manager.db.data.clear();
+                await this.manager.db.outbox.clear();
+                this.log("Lokale database gereset.", "error");
+                this.refreshViews();
+            }
+
+            // --- TESTS ---
+
+            async runConcurrentTest() {
+                this.log("START CONCURRENT TEST: 5 snelle updates afvuren...");
+                const first = await this.manager.saveSmartDocument('items', { title: "Concurrent Test " + Date.now(), content: "Init" });
+                for(let i=1; i<=5; i++) {
+                    setTimeout(async () => {
+                        await this.manager.saveSmartDocument('items', { ...first, content: "Update " + i });
+                        this.log(`Update ${i} verzonden naar manager`);
+                    }, i * 30);
+                }
+            }
+
+            async runSequentialTest() {
+                this.log("START SEQUENTIAL TEST: 5 opeenvolgende saves...");
+                let current = await this.manager.saveSmartDocument('items', { title: "Sequential Test " + Date.now(), content: "Stap 0" });
+                for(let i=1; i<=5; i++) {
+                    await new Promise(r => setTimeout(r, 100));
+                    current = await this.manager.saveSmartDocument('items', { ...current, content: "Stap " + i });
+                    this.log(`Stap ${i} voltooid (Lokaal ID: ${current.id})`);
+                }
+            }
+        }
+
+        // Initialisatie
+        const ui = new UIController();
+        window.ui = ui;
+    </script>
+
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+
+<!-- 2. De Offline Manager (Zorg dat dit bestand in dezelfde map staat) -->
+
+    <script src="offline_manager.js"></script>
+
+  
+</body>
+</html>
