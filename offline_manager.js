@@ -1,7 +1,8 @@
 /**
- * OFFLINE MANAGER - CORE ENGINE V12 (Performance Optimized)
- * --------------------------------------------------------
- * Toegevoegd: onDataChanged callback voor directe UI updates na sync.
+ * OFFLINE MANAGER - CORE ENGINE V13 (Ghost Prevention)
+ * ----------------------------------------------------
+ * Deze versie voorkomt dat items die lokaal verwijderd zijn, weer 
+ * verschijnen na een refresh zolang de server nog niet bijgewerkt is.
  */
 
 class DataGateway {
@@ -58,16 +59,14 @@ class OfflineManager {
         });
 
         this.isSyncing = false;
-        this.onDataChanged = null; // Callback voor de UI
+        this.onSyncChange = null;
+        this.onDataChanged = null;
+        this.isOfflineSimulated = false;
     }
 
-    /**
-     * Slaat op en geeft onmiddellijk het resultaat terug voor de UI.
-     */
     async saveSmartDocument(collectionName, data) {
         let record = JSON.parse(JSON.stringify(data));
 
-        // Race-condition check
         if (record.id) {
             const latest = await this.db.data.get(Number(record.id));
             if (latest && latest._id) record._id = latest._id;
@@ -94,9 +93,7 @@ class OfflineManager {
             await this.db.outbox.add({ action, collection: collectionName, payload: localRecord });
         }
         
-        // Start sync op de achtergrond, NIET awaiten!
-        if (navigator.onLine) this.syncOutbox();
-        
+        if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
         return localRecord;
     }
 
@@ -106,9 +103,11 @@ class OfflineManager {
 
         const serverId = item ? item._id : (String(id).length > 15 ? id : null);
 
+        // 1. Direct lokaal wissen
         await this.db.data.where({ collection: collectionName })
             .filter(i => String(i._id || i.id) === String(id)).delete();
 
+        // 2. Outbox vullen
         if (serverId) {
             await this.db.outbox.add({ action: 'DELETE', collection: collectionName, payload: { _id: serverId } });
         } else {
@@ -116,54 +115,65 @@ class OfflineManager {
                 .filter(o => String(o.payload.id) === String(id)).delete();
         }
 
-        if (navigator.onLine) this.syncOutbox();
+        if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
     }
 
     async getSmartCollection(collectionName) {
         const localData = await this.db.data.where({ collection: collectionName }).toArray();
-        if (navigator.onLine) this.refreshCache(collectionName);
+        if (navigator.onLine && !this.isOfflineSimulated) this.refreshCache(collectionName);
         return localData;
     }
 
     /**
-     * Verbeterde cache-refresh: Beschermt zowel items met server-ID's als splinternieuwe items.
+     * VERBETERDE CACHE REFRESH: Ghosting Prevention
+     * We filteren server-data op basis van wat er nog in onze Outbox staat.
      */
     async refreshCache(collectionName) {
         try {
             const freshData = await this.gateway.getCollection(collectionName);
             const outboxItems = await this.db.outbox.where({ collection: collectionName }).toArray();
             
-            // Bescherm IDs en Titels die nog in de outbox staan
-            const pendingIds = new Set(outboxItems.map(i => i.payload._id).filter(id => id));
-            const pendingTitles = new Set(outboxItems.filter(i => !i.payload._id).map(i => i.payload.title));
+            // 1. Maak een lijst van IDs die we lokaal hebben verwijderd
+            const deletedIds = new Set(outboxItems.filter(i => i.action === 'DELETE').map(i => i.payload._id));
             
-            // Verwijder alleen data die NIET in de outbox staat
+            // 2. Maak een lijst van IDs/Titels die we momenteel lokaal aanpassen
+            const pendingUpdates = new Set(outboxItems.filter(i => i.action !== 'DELETE').map(i => i.payload._id || i.payload.title));
+            
+            // 3. Filter de server data: gooi alles weg wat we gewist hebben
+            const filteredServerData = freshData.filter(doc => !deletedIds.has(doc._id));
+
+            // Stap A: Wis lokale items die NIET op de server staan en NIET in de outbox
+            const serverIds = new Set(filteredServerData.map(d => d._id));
             await this.db.data.where({ collection: collectionName })
                 .filter(doc => {
-                    if (doc._id) return !pendingIds.has(doc._id);
-                    return !pendingTitles.has(doc.title);
+                    // Behou lokaal aangepaste items altijd
+                    if (doc._id && pendingUpdates.has(doc._id)) return false;
+                    if (!doc._id && pendingUpdates.has(doc.title)) return false;
+                    
+                    // Verwijder als het niet op de server staat
+                    return doc._id && !serverIds.has(doc._id);
                 })
                 .delete();
             
-            const taggedData = freshData.map(d => ({ ...d, collection: collectionName }));
+            // Stap B: Zet de actuele server data in Dexie
+            const taggedData = filteredServerData.map(d => ({ ...d, collection: collectionName }));
             await this.db.data.bulkPut(taggedData);
 
-            // Meld aan de UI dat er nieuwe data is
             if (this.onDataChanged) this.onDataChanged(collectionName);
         } catch (err) {
-            console.warn(`[Manager] Cache refresh mislukt`, err);
+            console.warn(`[Manager] Refresh mislukt`, err);
         }
     }
 
     async syncOutbox() {
-        if (!navigator.onLine || this.isSyncing) return;
+        if (!navigator.onLine || this.isOfflineSimulated || this.isSyncing) return;
         this.isSyncing = true;
         
         try {
             let items = await this.db.outbox.orderBy('id').toArray();
-            let hasChanges = false;
+            if (this.onSyncChange) this.onSyncChange(items.length);
 
-            while (items.length > 0) {
+            while (items.length > 0 && !this.isOfflineSimulated) {
                 const item = items[0];
                 try {
                     if (item.action === 'DELETE') {
@@ -176,19 +186,16 @@ class OfflineManager {
                         const response = await this.gateway.saveDocument(item.collection, payload);
                         if (item.action === 'POST' && response && response._id) {
                             await this.db.data.update(dexieId, { _id: response._id });
-                            hasChanges = true;
                         }
                     }
                     await this.db.outbox.delete(item.id);
-                    hasChanges = true;
                 } catch (e) { break; }
                 items = await this.db.outbox.orderBy('id').toArray();
+                if (this.onSyncChange) this.onSyncChange(items.length);
             }
-
-            // Als er IDs zijn aangepast, laat de UI verversen
-            if (hasChanges && this.onDataChanged) this.onDataChanged();
         } finally {
             this.isSyncing = false;
+            if (this.onDataChanged) this.onDataChanged();
         }
     }
 }
