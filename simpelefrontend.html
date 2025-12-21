@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eenvoudige Offline-First App (Dark)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Vereiste Bibliotheken -->
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="offline_manager.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0b0f1a; color: #e2e8f0; }
+        .card { transition: all 0.2s ease; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4); border-color: rgba(56, 189, 248, 0.3); }
+        .status-btn { transition: all 0.3s ease; }
+        .status-btn.active-online { background-color: rgba(16, 185, 129, 0.2); border-color: #10b981; color: #10b981; }
+        .status-btn.active-offline { background-color: rgba(244, 63, 94, 0.2); border-color: #f43f5e; color: #f43f5e; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0b0f1a; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-white tracking-tight">Mijn <span class="text-sky-400">Items</span></h1>
+                <p class="text-slate-500 text-sm">Altijd synchroon, geen spook-data meer</p>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-800 shadow-inner">
+                    <button id="btn-set-online" onclick="app.setConnectivity(true)" class="status-btn px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-transparent">
+                        <div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Online
+                    </button>
+                    <button id="btn-set-offline" onclick="app.setConnectivity(false)" class="status-btn px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-transparent">
+                        <div class="w-1.5 h-1.5 rounded-full bg-rose-500"></div> Offline
+                    </button>
+                </div>
+
+                <div id="sync-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    <i class="fas fa-sync-alt" id="status-icon"></i>
+                    <span id="status-text">Laden...</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
+            <div class="md:col-span-5">
+                <div id="form-card" class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl sticky top-8 transition-all duration-300">
+                    <h2 id="form-title" class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <i class="fas fa-plus-circle text-sky-400"></i> Nieuw Item
+                    </h2>
+                    <div class="space-y-4">
+                        <input type="text" id="item-title" placeholder="Titel..." class="w-full bg-slate-950 px-4 py-3 rounded-xl border border-slate-800 text-white outline-none focus:border-sky-500 transition-all">
+                        <textarea id="item-content" placeholder="Inhoud..." class="w-full bg-slate-950 px-4 py-3 rounded-xl border border-slate-800 text-white h-32 resize-none outline-none focus:border-sky-500 transition-all"></textarea>
+                        <button onclick="app.handleSave()" id="save-button" class="w-full py-4 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl transition-all flex items-center justify-center gap-2 uppercase text-xs tracking-widest">
+                            <i class="fas fa-save"></i> Item Opslaan
+                        </button>
+                        <button id="cancel-button" onclick="app.resetForm()" class="hidden w-full mt-3 py-2 text-xs font-bold text-slate-500 hover:text-rose-400">Annuleren</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="md:col-span-7">
+                <div id="items-list" class="space-y-4">
+                    <div class="py-20 text-center text-slate-600 animate-pulse italic">Laden van items...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class SimpleApp {
+            constructor() {
+                this.manager = new OfflineManager('http://10.10.2.20:5000', 'sandman', 'simple_app');
+                this.editingId = null;
+                this.collection = 'my_items';
+                this.init();
+            }
+
+            async init() {
+                // Sync status monitor
+                this.manager.onSyncChange = (count) => this.updateStatusUI(count);
+                
+                // Data verandering monitor
+                this.manager.onDataChanged = () => this.renderList();
+
+                // Browser status monitoring
+                window.addEventListener('online', () => this.updateStatusUI());
+                window.addEventListener('offline', () => this.updateStatusUI());
+
+                // 1. Eerste render direct vanuit lokale cache (Snelheid!)
+                await this.renderList();
+                this.updateConnectivityUI();
+                this.updateStatusUI(0);
+
+                // 2. Éénmalige verversing van de server bij opstarten (Geen loop meer)
+                if (navigator.onLine && !this.manager.isOfflineSimulated) {
+                    this.manager.refreshCache(this.collection);
+                }
+                
+                console.log("App geïnitialiseerd.");
+            }
+
+            setConnectivity(isOnline) {
+                this.manager.isOfflineSimulated = !isOnline;
+                this.updateConnectivityUI();
+                this.updateStatusUI();
+                if (isOnline) this.manager.syncOutbox();
+            }
+
+            updateConnectivityUI() {
+                const isOnline = !this.manager.isOfflineSimulated && navigator.onLine;
+                document.getElementById('btn-set-online').classList.toggle('active-online', isOnline);
+                document.getElementById('btn-set-offline').classList.toggle('active-offline', !isOnline);
+            }
+
+            updateStatusUI(outboxCount) {
+                const icon = document.getElementById('status-icon');
+                const text = document.getElementById('status-text');
+                const isOnline = !this.manager.isOfflineSimulated && navigator.onLine;
+                const count = outboxCount !== undefined ? outboxCount : 0;
+
+                if (!isOnline) {
+                    icon.className = "fas fa-plane text-rose-500";
+                    text.innerText = "Offline modus";
+                } else if (count > 0) {
+                    icon.className = "fas fa-sync-alt fa-spin text-sky-400";
+                    text.innerText = `${count} items...`;
+                } else {
+                    icon.className = "fas fa-check-circle text-emerald-400";
+                    text.innerText = "Bijgewerkt";
+                }
+            }
+
+            async handleSave() {
+                const title = document.getElementById('item-title').value;
+                const content = document.getElementById('item-content').value;
+                if (!title) return;
+
+                const data = { title, content, updated_at: Date.now() };
+
+                if (this.editingId) {
+                    if (isNaN(this.editingId)) data._id = this.editingId;
+                    else data.id = Number(this.editingId);
+                }
+
+                await this.manager.saveSmartDocument(this.collection, data);
+                this.resetForm();
+                await this.renderList();
+            }
+
+            async deleteItem(id) {
+                if (!confirm("Item verwijderen?")) return;
+                await this.manager.deleteSmartDocument(this.collection, id);
+                await this.renderList();
+            }
+
+            startEdit(item) {
+                this.editingId = item._id || item.id;
+                document.getElementById('item-title').value = item.title;
+                document.getElementById('item-content').value = item.content || '';
+                document.getElementById('form-title').innerHTML = '<i class="fas fa-edit text-amber-400"></i> Bewerken';
+                document.getElementById('save-button').innerText = 'Wijzigingen Opslaan';
+                document.getElementById('save-button').classList.replace('bg-sky-500', 'bg-amber-500');
+                document.getElementById('cancel-button').classList.remove('hidden');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            resetForm() {
+                this.editingId = null;
+                document.getElementById('item-title').value = '';
+                document.getElementById('item-content').value = '';
+                document.getElementById('form-title').innerHTML = '<i class="fas fa-plus-circle text-sky-400"></i> Nieuw Item';
+                document.getElementById('save-button').innerText = 'Item Opslaan';
+                document.getElementById('save-button').classList.replace('bg-amber-500', 'bg-sky-500');
+                document.getElementById('cancel-button').classList.add('hidden');
+            }
+
+            async renderList() {
+                const container = document.getElementById('items-list');
+                const items = await this.manager.getSmartCollection(this.collection);
+                items.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+                
+                container.innerHTML = items.length ? items.map(item => `
+                    <div class="card bg-slate-900 border border-slate-800 p-5 rounded-2xl flex justify-between items-start gap-4">
+                        <div class="min-w-0 flex-1">
+                            <h3 class="font-bold text-white truncate">${item.title} ${!item._id ? '<span class="text-[8px] bg-sky-500/20 text-sky-400 px-1.5 py-0.5 rounded-full uppercase ml-2 tracking-tighter">Offline</span>' : ''}</h3>
+                            <p class="text-slate-400 text-sm mt-1 line-clamp-3">${item.content || ''}</p>
+                        </div>
+                        <div class="flex gap-1">
+                            <button onclick="app.startEdit(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="p-2 text-slate-500 hover:text-sky-400"><i class="fas fa-edit"></i></button>
+                            <button onclick="app.deleteItem('${item._id || item.id}')" class="p-2 text-slate-500 hover:text-rose-400"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    </div>`).join('') : '<div class="py-20 text-center text-slate-700 italic">Geen items gevonden.</div>';
+            }
+        }
+        window.app = new SimpleApp();
+    </script>
+</body>
+</html>
