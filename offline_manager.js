@@ -1,6 +1,5 @@
 /**
- * OfflineManager V7 - De "Snapshot" Editie
- * Past het advies toe: Gebruikt een onafhankelijk record voor de outbox.
+ * OfflineManager V8 - De "delete" Editie
  */
 import DataGateway from './datagateway.js';
 
@@ -63,6 +62,29 @@ async saveSmartDocument(collectionName, data) {
     return record;
   }
 
+  async deleteSmartDocument(collectionName, id) {
+    // 1. Verwijder direct lokaal uit Dexie (voor de snelheid)
+    await this.db.data
+        .where({ collection: collectionName })
+        .filter(i => String(i._id || i.id) === String(id))
+        .delete();
+
+    // 2. Zet de DELETE opdracht in de outbox
+    await this.db.outbox.add({
+        action: 'DELETE',
+        collection: collectionName,
+        payload: { _id: id } // We hebben alleen het ID nodig om te verwijderen
+    });
+
+    // 3. Probeer direct te synchroniseren als we online zijn
+    if (navigator.onLine) {
+        this.syncOutbox();
+    }
+}  
+    
+    
+    
+    
   /**
    * Verwerkt de outbox.
    */
@@ -72,34 +94,31 @@ async syncOutbox() {
     if (items.length === 0) return;
 
     for (const item of items) {
-      try {
-        let finalPayload = JSON.parse(JSON.stringify(item.payload));
+        try {
+            if (item.action === 'DELETE') {
+                // --- NIEUW: AFHANDELING VAN DELETE ---
+                await this.gateway.deleteDocument(item.collection, item.payload._id);
+            } else {
+                // --- BESTAANDE LOGICA VOOR POST/PUT ---
+                let finalPayload = JSON.parse(JSON.stringify(item.payload));
+                delete finalPayload.collection; 
+                delete finalPayload.id;
 
-        // --- DE FIX: VERWIJDER INTERNE VELDEN VOOR VERZENDING ---
-        delete finalPayload.collection; // Dit hoort niet in MongoDB
-        delete finalPayload.id;         // Dit is het lokale Dexie-id, mag niet naar MongoDB
-        
-        // Converteer binaire data
-        for (const key in finalPayload) {
-          if (finalPayload[key] && (finalPayload[key] instanceof File || finalPayload[key] instanceof Blob)) {
-            finalPayload[key] = await this._blobToBase64(finalPayload[key]);
-          }
+                const response = await this.gateway.saveDocument(item.collection, finalPayload);
+                
+                if (item.action === 'POST' && response && response._id) {
+                    await this._linkServerId(item.collection, item.payload, response._id);
+                }
+            }
+
+            // Als het gelukt is (geen error), verwijder uit outbox
+            await this.db.outbox.delete(item.id);
+        } catch (err) {
+            console.error(`[Sync Fout]`, err);
+            continue; 
         }
-
-        // Verstuur naar gateway
-        const response = await this.gateway.saveDocument(item.collection, finalPayload);
-        
-        if (item.action === 'POST' && response && response._id) {
-          await this._linkServerId(item.collection, item.payload, response._id);
-        }
-
-        await this.db.outbox.delete(item.id);
-      } catch (err) {
-        console.error(`[Sync Fout]`, err);
-        continue; 
-      }
     }
-  }
+}
 
   async _linkServerId(collectionName, originalPayload, newServerId) {
     const localRecord = await this.db.data
