@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gateway & OfflineManager Tester</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0b0f1a; color: #e2e8f0; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+        .json-key { color: #94a3b8; }
+        .json-value { color: #38bdf8; }
+        .json-string { color: #10b981; }
+        
+        .status-btn { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .status-btn.active-online { background-color: rgba(16, 185, 129, 0.2); border-color: #10b981; color: #10b981; box-shadow: 0 0 15px rgba(16, 185, 129, 0.1); }
+        .status-btn.active-offline { background-color: rgba(244, 63, 94, 0.2); border-color: #f43f5e; color: #f43f5e; box-shadow: 0 0 15px rgba(244, 63, 94, 0.1); }
+        
+        tr.clickable:hover, .card-clickable:hover { background-color: rgba(56, 189, 248, 0.1) !important; cursor: pointer; }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+
+    <div class="max-w-[1600px] mx-auto">
+        <!-- Top Navigation / Status -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 bg-slate-900/50 p-4 rounded-2xl border border-white/5 shadow-2xl">
+            <div>
+                <h1 class="text-2xl font-black text-white tracking-tighter uppercase">System <span class="text-sky-400">Inspector</span></h1>
+                <p class="text-gray-500 text-xs font-medium uppercase tracking-widest">Gateway & Server-Sync Validator</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div class="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                    <button id="btn-set-online" onclick="tester.setConnectivity(true)" class="status-btn px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-transparent">
+                        <div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Online
+                    </button>
+                    <button id="btn-set-offline" onclick="tester.setConnectivity(false)" class="status-btn px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-transparent">
+                        <div class="w-1.5 h-1.5 rounded-full bg-rose-500"></div> Offline
+                    </button>
+                </div>
+
+                <div id="sync-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[10px] font-black uppercase tracking-widest">
+                    <i class="fas fa-sync-alt"></i> Idle
+                </div>
+                
+                <button onclick="tester.fullReset()" class="p-2 hover:bg-rose-500/20 text-gray-500 hover:text-rose-500 rounded-lg transition-all" title="Reset Dexie Cache">
+                    <i class="fas fa-trash-restore"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- LINKER KOLOM: CONTROLES & LOGS -->
+            <div class="lg:col-span-4 space-y-6">
+                <!-- Invoer Formulier -->
+                <div id="form-container" class="bg-slate-900 border border-white/5 p-5 rounded-2xl shadow-xl transition-all">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 id="form-title" class="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-plus text-sky-400"></i> Directe Invoer
+                        </h2>
+                        <button id="btn-cancel-edit" onclick="tester.cancelEdit()" class="hidden text-[10px] text-rose-500 hover:underline font-bold uppercase tracking-widest">Annuleren</button>
+                    </div>
+                    <div class="space-y-3">
+                        <select id="test-collection" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-sky-500/50 text-gray-300">
+                            <option value="test_tasks">Taken (test_tasks)</option>
+                            <option value="test_notes">Notities (test_notes)</option>
+                        </select>
+                        <input type="text" id="test-title" placeholder="Titel..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-sky-500/50 text-white">
+                        <textarea id="test-content" placeholder="Beschrijving..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm h-20 focus:outline-none focus:border-sky-500/50 text-white"></textarea>
+                        
+                        <div id="edit-id-display" class="hidden py-1 px-3 bg-sky-500/10 border border-sky-500/20 rounded-lg text-[9px] mono text-sky-400 truncate">
+                            ID: <span id="current-edit-id"></span>
+                        </div>
+
+                        <button onclick="tester.saveItem()" id="btn-submit" class="w-full py-3 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black rounded-xl transition-all shadow-lg shadow-sky-500/10 uppercase text-[10px] tracking-widest">
+                            <i class="fas fa-paper-plane mr-1"></i> Submit naar Manager
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sync Outbox -->
+                <div class="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden flex flex-col h-[200px]">
+                    <div class="px-5 py-3 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                        <h2 class="text-[10px] font-black text-white uppercase tracking-widest">Wachtrij (Outbox)</h2>
+                        <span id="outbox-count" class="text-[10px] bg-sky-500 text-dark px-2 rounded-full font-bold">0</span>
+                    </div>
+                    <div id="outbox-list" class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 text-[10px]"></div>
+                </div>
+
+                <!-- Systeem Log -->
+                <div class="bg-black border border-white/5 rounded-2xl overflow-hidden flex flex-col h-[380px]">
+                    <div class="px-5 py-3 border-b border-white/5 bg-white/5">
+                        <h2 class="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Activiteiten Log</h2>
+                    </div>
+                    <div id="system-log" class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-1 text-[9px] mono"></div>
+                </div>
+            </div>
+
+            <!-- RECHTER KOLOM: DATA INSPECTIE -->
+            <div class="lg:col-span-8 space-y-6">
+                <!-- 1. Dexie Local Cache -->
+                <div class="bg-slate-900 border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+                    <div class="px-6 py-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                        <h2 class="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-hdd text-sky-400"></i> Dexie Local Cache <span class="text-[10px] text-gray-500 font-normal ml-2 lowercase">(Klik op item om offline te editen)</span>
+                        </h2>
+                        <button onclick="tester.refreshAll()" class="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 transition-all">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    <div id="db-list" class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[300px] overflow-y-auto custom-scrollbar"></div>
+                </div>
+
+                <!-- 2. Server Side (Direct API) -->
+                <div class="bg-slate-900 border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+                    <div class="px-6 py-4 border-b border-white/5 bg-sky-500/5 flex justify-between items-center">
+                        <h2 class="font-black text-sky-400 text-sm uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-cloud text-sky-400"></i> Server Side Data
+                        </h2>
+                        <div class="flex items-center gap-2">
+                            <button onclick="tester.fetchServerData()" class="px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 rounded-lg text-sky-400 text-[10px] font-black uppercase tracking-widest transition-all">
+                                <i class="fas fa-download mr-1"></i> Force Get
+                            </button>
+                            <button onclick="tester.clearServerData()" class="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-500 text-[10px] font-black uppercase tracking-widest transition-all">
+                                <i class="fas fa-broom mr-1"></i> Clear Server
+                            </button>
+                        </div>
+                    </div>
+                    <div id="server-list" class="p-0 max-h-[400px] overflow-y-auto custom-scrollbar bg-black/20">
+                        <table class="w-full text-left text-[11px] border-collapse">
+                            <thead class="bg-black/40 text-gray-500 uppercase font-black text-[9px] sticky top-0">
+                                <tr>
+                                    <th class="px-6 py-3 border-b border-white/5">Collectie</th>
+                                    <th class="px-6 py-3 border-b border-white/5">Server ID</th>
+                                    <th class="px-6 py-3 border-b border-white/5">Titel</th>
+                                    <th class="px-6 py-3 border-b border-white/5">Content</th>
+                                </tr>
+                            </thead>
+                            <tbody id="server-body">
+                                <tr><td colspan="4" class="px-6 py-10 text-center text-gray-600 italic text-[10px]">Klik op 'Force Get' om server data op te halen...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 3. Stress Test & JSON -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-amber-500/5 border border-amber-500/20 p-5 rounded-3xl flex flex-col justify-center">
+                        <h2 class="text-xs font-black text-amber-500 mb-2 uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-bolt"></i> Rapid Fire Test
+                        </h2>
+                        <p class="text-[10px] text-gray-500 mb-4">Verstuurt 5 updates in 200ms om duplicaten op de server te testen.</p>
+                        <button onclick="tester.runStressTest()" class="w-full py-2.5 border border-amber-500/40 text-amber-500 hover:bg-amber-500/10 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest">
+                            Start Stress Test
+                        </button>
+                    </div>
+                    <div class="bg-slate-900 border border-white/5 rounded-3xl p-5 overflow-hidden">
+                        <h2 class="text-[10px] font-black text-gray-500 mb-3 uppercase tracking-widest">Raw Local JSON</h2>
+                        <div id="json-inspector" class="mono text-[10px] h-32 overflow-y-auto custom-scrollbar opacity-60"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA GATEWAY ---
+        class DataGateway {
+            constructor(baseUrl, clientId, appName) {
+                this.baseUrl = baseUrl;
+                this.clientId = clientId;
+                this.appName = appName;
+            }
+
+            async getCollection(name) {
+                const response = await fetch(`${this.baseUrl}/api/${this.appName}_${name}`, {
+                    headers: { 'x-client-id': this.clientId }
+                });
+                return await response.json();
+            }
+
+            async saveDocument(name, data) {
+                const method = data._id ? 'PUT' : 'POST';
+                const url = data._id ? `${this.baseUrl}/api/${this.appName}_${name}/${data._id}` : `${this.baseUrl}/api/${this.appName}_${name}`;
+                await new Promise(r => setTimeout(r, 600)); 
+                const response = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json', 'x-client-id': this.clientId },
+                    body: JSON.stringify(data)
+                });
+                return await response.json();
+            }
+
+            async deleteDocument(name, id) {
+                await new Promise(r => setTimeout(r, 400));
+                const response = await fetch(`${this.baseUrl}/api/${this.appName}_${name}/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'x-client-id': this.clientId }
+                });
+                return await response.json();
+            }
+        }
+
+        // --- OFFLINE MANAGER ---
+        class OfflineManager {
+            constructor(baseUrl, clientId, appName) {
+                this.gateway = new DataGateway(baseUrl, clientId, appName);
+                this.db = new Dexie(`InspectorDB_${clientId}`);
+                this.db.version(1).stores({ data: "++id, collection, _id", outbox: "++id, action, collection" });
+                this.onSyncChange = null;
+                this.isOfflineSimulated = false; 
+            }
+
+            /**
+             * VERBETERDE SMART SAVE: Handelt race-conditions af door de database te checken op _id.
+             */
+            async saveSmartDocument(collection, data) {
+                let record = JSON.parse(JSON.stringify(data));
+
+                // --- DE STRESSTEST FIX ---
+                // Als we een lokaal ID hebben, haal dan de allerlaatste versie uit de DB.
+                // Dit voorkomt dat we een 'POST' doen terwijl een achtergrond-sync al een '_id' heeft opgehaald.
+                if (record.id) {
+                    const latestInDb = await this.db.data.get(Number(record.id));
+                    if (latestInDb && latestInDb._id) {
+                        record._id = latestInDb._id;
+                    }
+                }
+
+                const localRecord = { ...record, collection };
+                
+                // Identiteitsbewaking
+                if (record.id) {
+                    localRecord.id = Number(record.id);
+                } else if (record._id) {
+                    const existing = await this.db.data.where({ collection, _id: record._id }).first();
+                    if (existing) localRecord.id = existing.id;
+                }
+
+                const savedId = await this.db.data.put(localRecord);
+                localRecord.id = savedId;
+                const action = localRecord._id ? 'PUT' : 'POST';
+                
+                // Update bestaande wachtende taken in de outbox
+                const pending = await this.db.outbox.where({ collection })
+                    .filter(o => o.payload.id === savedId).first();
+                
+                if (pending) {
+                    // Behoud de action (POST blijft POST zelfs bij update, PUT blijft PUT)
+                    await this.db.outbox.update(pending.id, { payload: localRecord });
+                } else {
+                    await this.db.outbox.add({ action, collection, payload: localRecord });
+                }
+                
+                if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
+                return localRecord;
+            }
+
+            async deleteSmartDocument(collection, id) {
+                const item = await this.db.data.where({ collection }).filter(i => String(i._id || i.id) === String(id)).first();
+                const serverId = item ? item._id : (String(id).length > 15 ? id : null);
+                await this.db.data.where({ collection }).filter(i => String(i._id || i.id) === String(id)).delete();
+                if (serverId) await this.db.outbox.add({ action: 'DELETE', collection, payload: { _id: serverId } });
+                else await this.db.outbox.where({ collection }).filter(o => String(o.payload.id) === String(id)).delete();
+                
+                if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
+            }
+
+            async syncOutbox() {
+                if (!navigator.onLine || this.isOfflineSimulated) return;
+                const items = await this.db.outbox.orderBy('id').toArray();
+                if (this.onSyncChange) this.onSyncChange(items.length);
+                if (items.length === 0) return;
+                for (const item of items) {
+                    if (this.isOfflineSimulated) break;
+                    try {
+                        if (item.action === 'DELETE') await this.gateway.deleteDocument(item.collection, item.payload._id);
+                        else {
+                            const p = { ...item.payload };
+                            const dexieId = p.id;
+                            delete p.id; delete p.collection;
+                            const res = await this.gateway.saveDocument(item.collection, p);
+                            // Werk de lokale cache bij met het nieuwe server-ID
+                            if (item.action === 'POST' && res._id) {
+                                await this.db.data.update(dexieId, { _id: res._id });
+                            }
+                        }
+                        await this.db.outbox.delete(item.id);
+                    } catch (e) { console.error(e); }
+                }
+                const count = await this.db.outbox.count();
+                if (this.onSyncChange) this.onSyncChange(count);
+            }
+        }
+
+        // --- TESTER APP ---
+        class TestApp {
+            constructor() {
+                this.manager = new OfflineManager('http://10.10.2.20:5000', 'sandman', 'inspector');
+                this.editingItem = null; 
+                this.init();
+            }
+
+            init() {
+                this.manager.onSyncChange = (c) => this.updateSyncUI(c);
+                window.addEventListener('online', () => this.updateConnUI());
+                window.addEventListener('offline', () => this.updateConnUI());
+                this.updateConnUI();
+                setInterval(() => { this.renderDB(); this.renderOutbox(); this.renderJSON(); }, 1000);
+            }
+
+            log(m, t='info') {
+                const el = document.getElementById('system-log');
+                const d = document.createElement('div');
+                d.className = t === 'error' ? 'text-rose-500' : (t === 'success' ? 'text-sky-400 font-bold' : 'text-gray-500');
+                d.innerText = `[${new Date().toLocaleTimeString()}] ${m}`;
+                el.prepend(d);
+            }
+
+            setConnectivity(isOnline) {
+                this.manager.isOfflineSimulated = !isOnline;
+                this.log(`Modus: ${isOnline ? 'ONLINE' : 'OFFLINE'}`, isOnline ? 'success' : 'error');
+                this.updateConnUI();
+                if (isOnline) this.manager.syncOutbox();
+            }
+
+            updateConnUI() {
+                const btnOnline = document.getElementById('btn-set-online');
+                const btnOffline = document.getElementById('btn-set-offline');
+                const isActuallyOnline = navigator.onLine;
+                const isSimulatedOffline = this.manager.isOfflineSimulated;
+                btnOnline.classList.remove('active-online');
+                btnOffline.classList.remove('active-offline');
+                if (!isSimulatedOffline && isActuallyOnline) btnOnline.classList.add('active-online');
+                else btnOffline.classList.add('active-offline');
+            }
+
+            updateSyncUI(c) {
+                document.getElementById('sync-status').innerText = c > 0 ? 'Syncing...' : 'Idle';
+                document.getElementById('outbox-count').innerText = c;
+            }
+
+            startEdit(item) {
+                this.editingItem = item;
+                document.getElementById('test-collection').value = item.collection || item.col;
+                document.getElementById('test-title').value = item.title;
+                document.getElementById('test-content').value = item.content || item.description || '';
+                const isServerItem = !!item._id;
+                document.getElementById('form-title').innerHTML = `<i class="fas fa-edit text-amber-500"></i> ${isServerItem ? 'Server Edit' : 'Local Edit'}`;
+                document.getElementById('btn-submit').innerHTML = '<i class="fas fa-check mr-1"></i> Update doorsturen';
+                document.getElementById('btn-submit').classList.replace('bg-sky-500', 'bg-amber-500');
+                document.getElementById('btn-cancel-edit').classList.remove('hidden');
+                document.getElementById('edit-id-display').classList.remove('hidden');
+                document.getElementById('current-edit-id').innerText = isServerItem ? `_id: ${item._id}` : `Dexie: ${item.id}`;
+                document.getElementById('form-container').classList.add('ring-2', 'ring-amber-500/20');
+            }
+
+            cancelEdit() {
+                this.editingItem = null;
+                document.getElementById('test-title').value = '';
+                document.getElementById('test-content').value = '';
+                document.getElementById('form-title').innerHTML = '<i class="fas fa-plus text-sky-400"></i> Directe Invoer';
+                document.getElementById('btn-submit').innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Submit naar Manager';
+                document.getElementById('btn-submit').classList.replace('bg-amber-500', 'bg-sky-500');
+                document.getElementById('btn-cancel-edit').classList.add('hidden');
+                document.getElementById('edit-id-display').classList.add('hidden');
+                document.getElementById('form-container').classList.remove('ring-2', 'ring-amber-500/20');
+            }
+
+            async saveItem() {
+                const col = document.getElementById('test-collection').value;
+                const title = document.getElementById('test-title').value;
+                const content = document.getElementById('test-content').value;
+                if(!title) return;
+                const data = { title, content };
+                if (this.editingItem) {
+                    if (this.editingItem._id) data._id = this.editingItem._id;
+                    if (this.editingItem.id) data.id = this.editingItem.id;
+                }
+                await this.manager.saveSmartDocument(col, data);
+                this.cancelEdit();
+            }
+
+            async fetchServerData() {
+                const body = document.getElementById('server-body');
+                body.innerHTML = '<tr><td colspan="4" class="px-6 py-4 animate-pulse">Laden...</td></tr>';
+                try {
+                    const tasks = await this.manager.gateway.getCollection('test_tasks');
+                    const notes = await this.manager.gateway.getCollection('test_notes');
+                    const all = [
+                        ...tasks.map(t => ({ ...t, col: 'test_tasks' })),
+                        ...notes.map(n => ({ ...n, col: 'test_notes' }))
+                    ];
+                    if (all.length === 0) {
+                        body.innerHTML = '<tr><td colspan="4" class="px-6 py-10 text-center text-gray-600 italic text-[10px]">Server is leeg.</td></tr>';
+                        return;
+                    }
+                    body.innerHTML = all.map(i => {
+                        const itemJson = encodeURIComponent(JSON.stringify(i));
+                        return `
+                        <tr onclick="tester.startEdit(JSON.parse(decodeURIComponent('${itemJson}')))" class="clickable hover:bg-white/5 transition-colors group">
+                            <td class="px-6 py-3 border-b border-white/5"><span class="text-[9px] px-1.5 py-0.5 bg-white/5 rounded text-gray-500">${i.col}</span></td>
+                            <td class="px-6 py-3 border-b border-white/5 font-mono text-sky-400 text-[10px]">${i._id}</td>
+                            <td class="px-6 py-3 border-b border-white/5 font-bold text-white">${i.title}</td>
+                            <td class="px-6 py-3 border-b border-white/5 text-gray-500 truncate max-w-[200px]">${i.content || i.description || '-'}</td>
+                        </tr>`;
+                    }).join('');
+                } catch(e) { body.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-rose-500">Error: ${e.message}</td></tr>`; }
+            }
+
+            async clearServerData() {
+                if (!confirm("Server data volledig wissen?")) return;
+                const collections = ['test_tasks', 'test_notes'];
+                for (const colName of collections) {
+                    const items = await this.manager.gateway.getCollection(colName);
+                    for (const item of items) { if (item._id) await this.manager.gateway.deleteDocument(colName, item._id); }
+                }
+                this.fetchServerData();
+            }
+
+            async renderDB() {
+                const items = await this.manager.db.data.toArray();
+                const container = document.getElementById('db-list');
+                if (items.length === 0) { container.innerHTML = `<div class="col-span-full text-center text-gray-600 py-10 italic text-[10px]">Dexie is leeg.</div>`; return; }
+                container.innerHTML = items.map(item => {
+                    const itemJson = encodeURIComponent(JSON.stringify(item));
+                    return `
+                    <div onclick="tester.startEdit(JSON.parse(decodeURIComponent('${itemJson}')))" class="card-clickable bg-black/30 border border-white/5 p-3 rounded-2xl flex justify-between items-center group shadow-lg hover:border-sky-500/40">
+                        <div class="min-w-0">
+                            <h3 class="text-[11px] font-bold text-white truncate">${item.title}</h3>
+                            <p class="text-[9px] text-gray-500 mono">D_ID: ${item.id} | S_ID: <span class="${item._id?'text-emerald-500 font-bold':'text-amber-500'}">${item._id||'Pending'}</span></p>
+                        </div>
+                        <button onclick="event.stopPropagation(); tester.deleteItem('${item.collection}', '${item._id || item.id}')" class="p-2 text-gray-700 hover:text-rose-500 transition-all"><i class="fas fa-times"></i></button>
+                    </div>`;
+                }).join('');
+            }
+
+            async renderOutbox() {
+                const items = await this.manager.db.outbox.toArray();
+                const container = document.getElementById('outbox-list');
+                if (items.length === 0) { container.innerHTML = '<div class="text-[9px] text-gray-600 italic opacity-40">Geen wachtende taken.</div>'; return; }
+                container.innerHTML = items.map(item => `
+                    <div class="p-2 rounded bg-white/5 border-l-2 ${item.action==='DELETE'?'border-rose-500':'border-amber-500'} text-[9px] mono">
+                        <span class="font-bold ${item.action==='DELETE'?'text-rose-500':'text-amber-500'}">${item.action}</span> ${item.payload.title || item.payload._id}
+                    </div>
+                `).join('');
+            }
+
+            async renderJSON() {
+                const items = await this.manager.db.data.toArray();
+                document.getElementById('json-inspector').innerText = JSON.stringify(items, null, 2);
+            }
+
+            async deleteItem(col, id) { await this.manager.deleteSmartDocument(col, id); }
+            async fullReset() { if(confirm("Wis Dexie cache?")) { await this.manager.db.data.clear(); await this.manager.db.outbox.clear(); } }
+
+            /**
+             * VERBETERDE STRESSTEST: Wacht niet op resultaat om echte race-conditions te forceren.
+             */
+            async runStressTest() {
+                this.log("STRESS TEST START (Race condition simulatie)", "success");
+                const col = 'test_tasks';
+                
+                // 1. Maak het item aan.
+                const first = await this.manager.saveSmartDocument(col, { 
+                    title: "Stress Test " + Math.floor(Math.random() * 1000), 
+                    content: "Start" 
+                });
+                
+                // 2. Vuur 5 updates af vlak achter elkaar.
+                // Omdat we 'first' gebruiken (die nog geen _id heeft in het geheugen van dit script),
+                // MOET de manager nu zelf in de DB checken of 'first.id' inmiddels een _id heeft gekregen.
+                for(let i=1; i<=5; i++) {
+                    setTimeout(async () => {
+                        await this.manager.saveSmartDocument(col, { ...first, content: "Update " + i });
+                        this.log(`Update ${i} afgevuurd`);
+                    }, i * 40);
+                }
+            }
+        }
+
+        const tester = new TestApp();
+        window.tester = tester;
+    </script>
+</body>
+</html>
