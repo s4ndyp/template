@@ -28,7 +28,7 @@
 <body class="p-4 md:p-6">
 
     <div class="max-w-[1600px] mx-auto">
-        <!-- Top Navigation / Status -->
+        <!-- Top Navigatie / Status -->
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 bg-slate-900/50 p-4 rounded-2xl border border-white/5 shadow-2xl">
             <div>
                 <h1 class="text-2xl font-black text-white tracking-tighter uppercase">System <span class="text-sky-400">Inspector</span></h1>
@@ -152,14 +152,24 @@
 
                 <!-- 3. Stress Test & JSON -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="bg-amber-500/5 border border-amber-500/20 p-5 rounded-3xl flex flex-col justify-center">
+                    <div class="bg-amber-500/5 border border-amber-500/20 p-5 rounded-3xl space-y-3">
                         <h2 class="text-xs font-black text-amber-500 mb-2 uppercase tracking-widest flex items-center gap-2">
-                            <i class="fas fa-bolt"></i> Rapid Fire Test
+                            <i class="fas fa-bolt"></i> Stress Test Panel
                         </h2>
-                        <p class="text-[10px] text-gray-500 mb-4">Verstuurt 5 updates in 200ms om duplicaten op de server te testen.</p>
-                        <button onclick="tester.runStressTest()" class="w-full py-2.5 border border-amber-500/40 text-amber-500 hover:bg-amber-500/10 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest">
-                            Start Stress Test
-                        </button>
+                        
+                        <div class="space-y-2">
+                            <p class="text-[9px] text-gray-500 uppercase font-bold">Concurrent (Gelijktijdig)</p>
+                            <button onclick="tester.runStressTest()" class="w-full py-2 border border-amber-500/40 text-amber-500 hover:bg-amber-500/10 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest">
+                                Rapid Fire Test
+                            </button>
+                        </div>
+
+                        <div class="space-y-2">
+                            <p class="text-[9px] text-gray-500 uppercase font-bold">Sequential (Achter elkaar)</p>
+                            <button onclick="tester.runSequentialStressTest()" class="w-full py-2 border border-sky-500/40 text-sky-400 hover:bg-sky-500/10 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest">
+                                Slow Rapid Test
+                            </button>
+                        </div>
                     </div>
                     <div class="bg-slate-900 border border-white/5 rounded-3xl p-5 overflow-hidden">
                         <h2 class="text-[10px] font-black text-gray-500 mb-3 uppercase tracking-widest">Raw Local JSON</h2>
@@ -218,10 +228,24 @@
                 this.isOfflineSimulated = false; 
             }
 
+            /**
+             * VERBETERDE SMART SAVE: Handelt race-conditions af door de database te checken op _id.
+             */
             async saveSmartDocument(collection, data) {
-                const record = JSON.parse(JSON.stringify(data));
+                let record = JSON.parse(JSON.stringify(data));
+
+                // --- DE STRESSTEST FIX ---
+                // Als we een lokaal ID hebben, haal dan de allerlaatste versie uit de DB.
+                if (record.id) {
+                    const latestInDb = await this.db.data.get(Number(record.id));
+                    if (latestInDb && latestInDb._id) {
+                        record._id = latestInDb._id;
+                    }
+                }
+
                 const localRecord = { ...record, collection };
                 
+                // Identiteitsbewaking
                 if (record.id) {
                     localRecord.id = Number(record.id);
                 } else if (record._id) {
@@ -233,10 +257,12 @@
                 localRecord.id = savedId;
                 const action = localRecord._id ? 'PUT' : 'POST';
                 
-                if (action === 'POST') {
-                    const pending = await this.db.outbox.where({ collection, action: 'POST' }).filter(o => o.payload.id === savedId).first();
-                    if (pending) await this.db.outbox.update(pending.id, { payload: localRecord });
-                    else await this.db.outbox.add({ action, collection, payload: localRecord });
+                // Update bestaande wachtende taken in de outbox
+                const pending = await this.db.outbox.where({ collection })
+                    .filter(o => o.payload.id === savedId).first();
+                
+                if (pending) {
+                    await this.db.outbox.update(pending.id, { payload: localRecord });
                 } else {
                     await this.db.outbox.add({ action, collection, payload: localRecord });
                 }
@@ -326,17 +352,11 @@
                 document.getElementById('outbox-count').innerText = c;
             }
 
-            /**
-             * Bereidt het formulier voor op een bewerking
-             */
             startEdit(item) {
                 this.editingItem = item;
-                
                 document.getElementById('test-collection').value = item.collection || item.col;
                 document.getElementById('test-title').value = item.title;
                 document.getElementById('test-content').value = item.content || item.description || '';
-                
-                // UI Updates
                 const isServerItem = !!item._id;
                 document.getElementById('form-title').innerHTML = `<i class="fas fa-edit text-amber-500"></i> ${isServerItem ? 'Server Edit' : 'Local Edit'}`;
                 document.getElementById('btn-submit').innerHTML = '<i class="fas fa-check mr-1"></i> Update doorsturen';
@@ -345,16 +365,12 @@
                 document.getElementById('edit-id-display').classList.remove('hidden');
                 document.getElementById('current-edit-id').innerText = isServerItem ? `_id: ${item._id}` : `Dexie: ${item.id}`;
                 document.getElementById('form-container').classList.add('ring-2', 'ring-amber-500/20');
-                
-                this.log(`Bewerken gestart: ${item.title} (${isServerItem ? 'Server' : 'Offline'})`, 'success');
             }
 
             cancelEdit() {
                 this.editingItem = null;
                 document.getElementById('test-title').value = '';
                 document.getElementById('test-content').value = '';
-                
-                // UI Reset
                 document.getElementById('form-title').innerHTML = '<i class="fas fa-plus text-sky-400"></i> Directe Invoer';
                 document.getElementById('btn-submit').innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Submit naar Manager';
                 document.getElementById('btn-submit').classList.replace('bg-amber-500', 'bg-sky-500');
@@ -368,18 +384,11 @@
                 const title = document.getElementById('test-title').value;
                 const content = document.getElementById('test-content').value;
                 if(!title) return;
-
                 const data = { title, content };
-                
-                // Als we een item bewerken, behouden we de ID's
                 if (this.editingItem) {
                     if (this.editingItem._id) data._id = this.editingItem._id;
                     if (this.editingItem.id) data.id = this.editingItem.id;
-                    this.log(`Update voor: ${title} (${data._id ? 'Server' : 'Local'})`);
-                } else {
-                    this.log(`Nieuwe save: ${title}`);
                 }
-
                 await this.manager.saveSmartDocument(col, data);
                 this.cancelEdit();
             }
@@ -457,14 +466,49 @@
             async deleteItem(col, id) { await this.manager.deleteSmartDocument(col, id); }
             async fullReset() { if(confirm("Wis Dexie cache?")) { await this.manager.db.data.clear(); await this.manager.db.outbox.clear(); } }
 
+            /**
+             * CONCURRENT STRESSTEST: Vuur 5 updates tegelijk af.
+             */
             async runStressTest() {
+                this.log("CONCURRENT TEST START", "success");
                 const col = 'test_tasks';
-                const first = await this.manager.saveSmartDocument(col, { title: "Stress " + Date.now(), content: "Start" });
+                const first = await this.manager.saveSmartDocument(col, { 
+                    title: "Concurrent " + Math.floor(Math.random() * 100), 
+                    content: "Start" 
+                });
                 for(let i=1; i<=5; i++) {
                     setTimeout(async () => {
                         await this.manager.saveSmartDocument(col, { ...first, content: "Update " + i });
+                        this.log(`Simultane update ${i} verzonden`);
                     }, i * 40);
                 }
+            }
+
+            /**
+             * SEQUENTIAL STRESSTEST: Wacht tot de lokale save klaar is voor de volgende begint.
+             */
+            async runSequentialStressTest() {
+                this.log("SEQUENTIAL TEST START", "success");
+                const col = 'test_tasks';
+                
+                // 1. Maak het item aan en WACHT tot hij in Dexie zit
+                let currentItem = await this.manager.saveSmartDocument(col, { 
+                    title: "Sequential " + Math.floor(Math.random() * 100), 
+                    content: "Stap 0" 
+                });
+                this.log("Item aangemaakt (Stap 0)");
+
+                // 2. Voer 5 updates uit, elk wachtend op de vorige lokale save
+                for(let i=1; i<=5; i++) {
+                    await new Promise(r => setTimeout(r, 100)); // Kleine pauze tussen 'klikken'
+                    currentItem = await this.manager.saveSmartDocument(col, { 
+                        ...currentItem, 
+                        content: "Stap " + i 
+                    });
+                    this.log(`Stap ${i} lokaal opgeslagen`);
+                }
+                
+                this.log("Sequential test voltooid.", "success");
             }
         }
 
