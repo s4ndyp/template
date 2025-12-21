@@ -1,43 +1,47 @@
-# **Technical Specification: DataGateway & OfflineManager**
+# **Technische Specificatie: De Offline-First Architectuur**
 
-Dit document beschrijft de architectuur voor data-opslag en synchronisatie. Gebruik deze specificaties om nieuwe features of apps te coderen die naadloos aansluiten op de bestaande Python API en de lokale Dexie (IndexedDB) cache.
+Dit document beschrijft hoe de UI, de OfflineManager en de DataGateway samenwerken. Het is cruciaal dat elke nieuwe app of feature zich strikt aan deze hiërarchie houdt om data-corruptie en synchronisatiefouten te voorkomen.
 
-## **1\. De Lagen (Architecture Stack)**
+## **1\. De Gouden Regel van Communicatie**
 
-1. **UI Layer**: Roept alleen OfflineManager aan. Gebruikt uitsluitend de \_id van MongoDB.  
-2. **Logic Layer (OfflineManager)**: De "Slimme" tussenlaag. Vertaalt server-data naar lokale cache en beheert de ID-mapping.  
-3. **Transport Layer (DataGateway)**: Handelt HTTP/JSON communicatie af.
+De hiërarchie is een eenrichtingsweg voor de UI:  
+UI (App Logic) ➔ OfflineManager ➔ DataGateway ➔ Server (API)
 
-## **2\. DataGateway (datagateway.js)**
+* **De UI** spreekt **alleen** met de OfflineManager.  
+* **De UI** mag **nooit** direct functies van de DataGateway aanroepen.  
+* **De UI** gaat ervan uit dat elke actie (opslaan/verwijderen) onmiddellijk lukt (Optimistic UI).
 
-De gateway communiceert direct met de Python MongoDB API.
+## **2\. Technische Details: Headers & Auth**
 
-* **Auth**: Elke aanroep bevat de header x-client-id.  
-* **App-Prefix**: Collectienamen worden automatisch geprefixed (bijv. api/test\_tasks).
+Onder de motorkap handelt de DataGateway alle server-specifieke eisen af. De UI-laag hoeft hier geen rekening mee te houden:
 
-### **API Methodes:**
+* **x-client-id**: Elke aanroep naar de server bevat automatisch deze header. Dit wordt geconfigureerd bij het initialiseren van de Gateway.  
+* **Content-Type**: De gateway zorgt voor de juiste JSON-transformatie en headers.  
+* **URL-Prefixing**: Collectienamen worden door de gateway automatisch vertaald naar de juiste API-endpoints.
 
-* getCollection(name): Haalt alle documenten uit een collectie.  
-* saveDocument(name, data): Gebruikt POST voor nieuwe items (geen \_id) en PUT voor updates (wel \_id).
-* deleteDocument(name).
+## **3\. De "Smart" Methode Set**
 
-## **3\. OfflineManager (offline\_manager.js)**
+De OfflineManager bevat "Smart"-functies. Ze doen drie dingen tegelijk: de lokale database bijwerken, de Outbox vullen, en de synchronisatie starten.
 
-Beheert de lokale database (AppCache) via Dexie.js. Een volwassen manager ontzorgt de UI door ID-beheer over te nemen.
+### **A. getSmartCollection(collectionName)**
 
-### **Slim ID-beheer (Architectuur):**
+Haalt data direct uit de lokale **Dexie cache** (Source of Truth) en ververst op de achtergrond de cache via de server.
 
-* **Local ID (id)**: Wordt alleen intern door Dexie gebruikt voor de database-index. Wordt **niet** gedeeld met de UI of de server.  
-* **Server ID (\_id)**: De "Single Source of Truth". Alle acties in de app en op de server gebruiken dit ID.  
-* **Auto-Upsert**: saveSmartDocument controleert altijd of een item met een bepaald \_id al bestaat. Zo ja, dan wordt het bestaande record bijgewerkt in plaats van dat er een nieuwe rij wordt toegevoegd.
+### **B. saveSmartDocument(collectionName, data)**
+
+Slaat data direct op in Dexie (met tijdelijk ID indien nodig), voegt een actie toe aan de Outbox en triggert de synchronisatie.
+
+### **C. deleteSmartDocument(collectionName, id)**
+
+Verwijdert het item onmiddellijk uit de lokale Dexie cache en zet een DELETE opdracht in de Outbox.
 
 ## **4\. Initialisatie & Opstarten (Warm-up)**
 
-De frontend configureert de manager en luistert naar verbindingsherstel.
+De frontend configureert de manager en luistert naar verbindingsherstel om achterstallige wijzigingen direct te verwerken.
 
-const APP\_NAME \= 'jouw\_app\_naam';   
-const CLIENT\_ID \= 'sandman';   
-const API\_URL \= 'http://10.10.2.20:5000'; 
+const APP\_NAME \= 'appnaam';  
+const CLIENT\_ID \= 'sandman';  
+const API\_URL \= 'http://10.10.2.20:5000';
 
 const manager \= new OfflineManager(API\_URL, CLIENT\_ID, APP\_NAME);
 
@@ -49,33 +53,36 @@ window.addEventListener('online', () \=\> {
 
 ## **5\. Multi-client Consistentie & Polling**
 
-* **Actieve Sync**: Voer elke 60 seconden een refreshCache() uit.  
+Om data op meerdere apparaten synchroon te houden, gebruikt de app twee strategieën:
+
+* **Actieve Sync**: Voer elke 60 seconden een refreshCache() uit op de achtergrond.  
 * **Focus Sync**: Ververs de cache wanneer de gebruiker de tab weer activeert (window.onfocus).
 
-## **6\. Speciale Functionaliteiten (Bijlagen)**
+## **6\. De Outbox & Sync Logica**
 
-* **Bijlagen**: Worden binair opgeslagen in Dexie en als **Base64** verzonden naar de API tijdens de sync.
+Wanneer de manager merkt dat er internet is (navigator.onLine), loopt hij de Outbox af:
+
+1. **Actie check**: Is het een POST, PUT of DELETE?  
+2. **Gateway aanroep**: De opdracht wordt doorgegeven aan de DataGateway (inclusief headers).  
+3. **Bevestiging**: Pas bij een "OK" van de server wordt het item uit de Outbox verwijderd.  
+4. **ID Koppeling**: Bij een POST vervangt de manager het tijdelijke lokale ID door het echte server-ID (\_id) in de cache.
 
 ## **7\. Optimistic UI: Identiteitsbewaking**
 
-Om "spook-data" en duplicaten te voorkomen, moet de manager de identiteit van een document bewaken vanaf het moment van creatie.
+Om "spook-data" en duplicaten te voorkomen, bewaakt de manager de identiteit van een document vanaf creatie.
 
-### **De "Smart Manager" Flow:**
+### **De Smart Manager Flow:**
 
 1. De UI stuurt data naar saveSmartDocument.  
-2. De manager genereert een tijdelijke \_id als deze ontbreekt (of wacht op de server).  
-3. De manager geeft het object **inclusief de (tijdelijke) ID** terug aan de UI.  
+2. De manager genereert een tijdelijke \_id als deze ontbreekt.  
+3. De manager geeft het object **inclusief de (tijdelijke) ID** direct terug aan de UI.  
 4. De UI slaat deze ID onmiddellijk op in zijn lokale state.
 
-**Resultaat:** Een tweede klik op "Opslaan" wordt door de manager herkend als een update van hetzelfde item, waardoor er geen dubbele "POST" in de outbox komt.
+**Resultaat:** Een tweede klik op "Opslaan" wordt herkend als een update van hetzelfde item, waardoor dubbele "POST" acties in de outbox worden voorkomen.
 
 ## **8\. UI Rendering: De "Schone Lei" Methode**
 
-Zelfs met een slimme manager kan de UI verward raken tijdens snelle acties. Gebruik daarom altijd de "Schoonmaken voor Tekenen" methode.
-
-### **De Oplossing voor Visuele Dubbelingen:**
-
-De render-functie mag nooit "slim" proberen te zijn door items toe te voegen aan een bestaande lijst. De UI moet altijd de lokale database als enige bron van waarheid beschouwen.
+De UI moet altijd de lokale database als enige bron van waarheid beschouwen. Gebruik de "Schoonmaken voor Tekenen" methode om visuele dubbelingen te voorkomen.
 
 async function renderDashboard() {  
     const container \= document.getElementById('item-container');  
@@ -86,12 +93,14 @@ async function renderDashboard() {
     // 2\. Haal de 'Source of Truth' uit Dexie via de Manager  
     const items \= await manager.getSmartCollection('mijn\_collectie');
 
-    // 3\. Teken alles opnieuw op basis van de verse database-staat  
+    // 3\. Teken alles opnieuw  
     items.forEach(item \=\> {  
         container.appendChild(createCard(item));  
     });  
 }
 
-### **Waarom dit werkt:**
+## **9\. Implementatie Checklist voor de UI**
 
-Door de container te legen, dwing je de UI om synchroon te lopen met de OfflineManager. Eventuele "dubbelgangers" die ontstaan in het geheugen van de browser worden hiermee direct weggepoetst.
+* Gebruik **nooit** fetch() of gateway direct in de UI componenten.  
+* Roep renderContent() of renderDashboard() altijd aan **na** een await op een Smart-functie.  
+* Zorg dat je bij het renderen van lijsten altijd eerst de container leegt.
