@@ -19,6 +19,7 @@ De gateway communiceert direct met de Python MongoDB API.
 
 * getCollection(name): Haalt alle documenten uit een collectie.  
 * saveDocument(name, data): Gebruikt POST voor nieuwe items (geen \_id) en PUT voor updates (wel \_id).
+* deleteDocument(name).
 
 ## **3\. OfflineManager (offline\_manager.js)**
 
@@ -35,8 +36,8 @@ Beheert de lokale database (AppCache) via Dexie.js. Een volwassen manager ontzor
 De frontend configureert de manager en luistert naar verbindingsherstel.
 
 const APP\_NAME \= 'jouw\_app\_naam';   
-const CLIENT\_ID \= 'unieke-gebruiker-id';   
-const API\_URL \= 'http://localhost:5000'; 
+const CLIENT\_ID \= 'sandman';   
+const API\_URL \= 'http://10.10.2.20:5000'; 
 
 const manager \= new OfflineManager(API\_URL, CLIENT\_ID, APP\_NAME);
 
