@@ -1,8 +1,8 @@
 /**
- * OFFLINE MANAGER - CORE ENGINE V13 (Ghost Prevention)
+ * OFFLINE MANAGER - CORE ENGINE V15 (Performance & Loop Fix)
  * ----------------------------------------------------
- * Deze versie voorkomt dat items die lokaal verwijderd zijn, weer 
- * verschijnen na een refresh zolang de server nog niet bijgewerkt is.
+ * Opgelost: Oneindige lus tussen getSmartCollection en refreshCache verwijderd.
+ * Verbeterd: Sync-locking en ID-mapping nog robuuster.
  */
 
 class DataGateway {
@@ -53,6 +53,7 @@ class OfflineManager {
         this.appName = appName;
         this.gateway = new DataGateway(baseUrl, clientId, appName);
         this.db = new Dexie(`OfflineEngine_${appName}_${clientId}`);
+        
         this.db.version(1).stores({
             data: "++id, collection, _id",
             outbox: "++id, action, collection"
@@ -64,6 +65,9 @@ class OfflineManager {
         this.isOfflineSimulated = false;
     }
 
+    /**
+     * Slaat op en start sync op de achtergrond.
+     */
     async saveSmartDocument(collectionName, data) {
         let record = JSON.parse(JSON.stringify(data));
 
@@ -93,6 +97,7 @@ class OfflineManager {
             await this.db.outbox.add({ action, collection: collectionName, payload: localRecord });
         }
         
+        // Trigger sync zonder de UI te blokkeren
         if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
         return localRecord;
     }
@@ -103,11 +108,9 @@ class OfflineManager {
 
         const serverId = item ? item._id : (String(id).length > 15 ? id : null);
 
-        // 1. Direct lokaal wissen
         await this.db.data.where({ collection: collectionName })
             .filter(i => String(i._id || i.id) === String(id)).delete();
 
-        // 2. Outbox vullen
         if (serverId) {
             await this.db.outbox.add({ action: 'DELETE', collection: collectionName, payload: { _id: serverId } });
         } else {
@@ -118,50 +121,56 @@ class OfflineManager {
         if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
     }
 
+    /**
+     * HAALT DATA ALLEEN UIT CACHE. 
+     * Verversen moet nu handmatig of via refreshCache() aangeroepen worden.
+     * Dit voorkomt de oneindige loop.
+     */
     async getSmartCollection(collectionName) {
-        const localData = await this.db.data.where({ collection: collectionName }).toArray();
-        if (navigator.onLine && !this.isOfflineSimulated) this.refreshCache(collectionName);
-        return localData;
+        return await this.db.data.where({ collection: collectionName }).toArray();
     }
 
     /**
-     * VERBETERDE CACHE REFRESH: Ghosting Prevention
-     * We filteren server-data op basis van wat er nog in onze Outbox staat.
+     * VERVERS CACHE: Haalt serverdata en vergelijkt met outbox.
      */
     async refreshCache(collectionName) {
+        if (!navigator.onLine || this.isOfflineSimulated) return;
+
         try {
             const freshData = await this.gateway.getCollection(collectionName);
             const outboxItems = await this.db.outbox.where({ collection: collectionName }).toArray();
             
-            // 1. Maak een lijst van IDs die we lokaal hebben verwijderd
             const deletedIds = new Set(outboxItems.filter(i => i.action === 'DELETE').map(i => i.payload._id));
-            
-            // 2. Maak een lijst van IDs/Titels die we momenteel lokaal aanpassen
             const pendingUpdates = new Set(outboxItems.filter(i => i.action !== 'DELETE').map(i => i.payload._id || i.payload.title));
             
-            // 3. Filter de server data: gooi alles weg wat we gewist hebben
             const filteredServerData = freshData.filter(doc => !deletedIds.has(doc._id));
 
-            // Stap A: Wis lokale items die NIET op de server staan en NIET in de outbox
+            // Mapping voor ID-consistentie
+            const localItems = await this.db.data.where({ collection: collectionName }).toArray();
+            const idMap = new Map(); 
+            localItems.forEach(item => { if (item._id) idMap.set(item._id, item.id); });
+
+            const taggedData = filteredServerData.map(d => {
+                const item = { ...d, collection: collectionName };
+                if (idMap.has(d._id)) item.id = idMap.get(d._id);
+                return item;
+            });
+
+            // Wis lokale items die echt weg zijn
             const serverIds = new Set(filteredServerData.map(d => d._id));
             await this.db.data.where({ collection: collectionName })
                 .filter(doc => {
-                    // Behou lokaal aangepaste items altijd
-                    if (doc._id && pendingUpdates.has(doc._id)) return false;
-                    if (!doc._id && pendingUpdates.has(doc.title)) return false;
-                    
-                    // Verwijder als het niet op de server staat
-                    return doc._id && !serverIds.has(doc._id);
+                    if (doc._id) return !serverIds.has(doc._id) && !pendingUpdates.has(doc._id);
+                    return !pendingUpdates.has(doc.title);
                 })
                 .delete();
             
-            // Stap B: Zet de actuele server data in Dexie
-            const taggedData = filteredServerData.map(d => ({ ...d, collection: collectionName }));
             await this.db.data.bulkPut(taggedData);
 
+            // Meld aan UI dat er echt nieuwe data is (alleen als de cache veranderd is)
             if (this.onDataChanged) this.onDataChanged(collectionName);
         } catch (err) {
-            console.warn(`[Manager] Refresh mislukt`, err);
+            console.warn(`[Manager] Refresh overgeslagen of mislukt`, err);
         }
     }
 
@@ -195,6 +204,7 @@ class OfflineManager {
             }
         } finally {
             this.isSyncing = false;
+            // Na de sync verversen we de cache één keer goed
             if (this.onDataChanged) this.onDataChanged();
         }
     }
