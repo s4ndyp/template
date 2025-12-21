@@ -17,6 +17,12 @@
         .json-key { color: #94a3b8; }
         .json-value { color: #38bdf8; }
         .json-string { color: #10b981; }
+        
+        .status-btn { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .status-btn.active-online { background-color: rgba(16, 185, 129, 0.2); border-color: #10b981; color: #10b981; box-shadow: 0 0 15px rgba(16, 185, 129, 0.1); }
+        .status-btn.active-offline { background-color: rgba(244, 63, 94, 0.2); border-color: #f43f5e; color: #f43f5e; box-shadow: 0 0 15px rgba(244, 63, 94, 0.1); }
+        
+        tr.clickable:hover, .card-clickable:hover { background-color: rgba(56, 189, 248, 0.1) !important; cursor: pointer; }
     </style>
 </head>
 <body class="p-4 md:p-6">
@@ -28,15 +34,21 @@
                 <h1 class="text-2xl font-black text-white tracking-tighter uppercase">System <span class="text-sky-400">Inspector</span></h1>
                 <p class="text-gray-500 text-xs font-medium uppercase tracking-widest">Gateway & Server-Sync Validator</p>
             </div>
-            <div class="flex items-center gap-4">
-                <div id="connection-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest">
-                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                    Online
+            
+            <div class="flex items-center gap-3">
+                <div class="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                    <button id="btn-set-online" onclick="tester.setConnectivity(true)" class="status-btn px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-transparent">
+                        <div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Online
+                    </button>
+                    <button id="btn-set-offline" onclick="tester.setConnectivity(false)" class="status-btn px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-transparent">
+                        <div class="w-1.5 h-1.5 rounded-full bg-rose-500"></div> Offline
+                    </button>
                 </div>
+
                 <div id="sync-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[10px] font-black uppercase tracking-widest">
-                    <i class="fas fa-sync-alt"></i>
-                    Idle
+                    <i class="fas fa-sync-alt"></i> Idle
                 </div>
+                
                 <button onclick="tester.fullReset()" class="p-2 hover:bg-rose-500/20 text-gray-500 hover:text-rose-500 rounded-lg transition-all" title="Reset Dexie Cache">
                     <i class="fas fa-trash-restore"></i>
                 </button>
@@ -48,10 +60,13 @@
             <!-- LINKER KOLOM: CONTROLES & LOGS -->
             <div class="lg:col-span-4 space-y-6">
                 <!-- Invoer Formulier -->
-                <div class="bg-slate-900 border border-white/5 p-5 rounded-2xl shadow-xl">
-                    <h2 class="text-xs font-black text-white mb-4 uppercase tracking-widest flex items-center gap-2">
-                        <i class="fas fa-plus text-sky-400"></i> Directe Invoer
-                    </h2>
+                <div id="form-container" class="bg-slate-900 border border-white/5 p-5 rounded-2xl shadow-xl transition-all">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 id="form-title" class="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                            <i class="fas fa-plus text-sky-400"></i> Directe Invoer
+                        </h2>
+                        <button id="btn-cancel-edit" onclick="tester.cancelEdit()" class="hidden text-[10px] text-rose-500 hover:underline font-bold uppercase tracking-widest">Annuleren</button>
+                    </div>
                     <div class="space-y-3">
                         <select id="test-collection" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-sky-500/50 text-gray-300">
                             <option value="test_tasks">Taken (test_tasks)</option>
@@ -59,7 +74,12 @@
                         </select>
                         <input type="text" id="test-title" placeholder="Titel..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-sky-500/50 text-white">
                         <textarea id="test-content" placeholder="Beschrijving..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm h-20 focus:outline-none focus:border-sky-500/50 text-white"></textarea>
-                        <button onclick="tester.saveItem()" class="w-full py-3 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black rounded-xl transition-all shadow-lg shadow-sky-500/10 uppercase text-[10px] tracking-widest">
+                        
+                        <div id="edit-id-display" class="hidden py-1 px-3 bg-sky-500/10 border border-sky-500/20 rounded-lg text-[9px] mono text-sky-400 truncate">
+                            ID: <span id="current-edit-id"></span>
+                        </div>
+
+                        <button onclick="tester.saveItem()" id="btn-submit" class="w-full py-3 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black rounded-xl transition-all shadow-lg shadow-sky-500/10 uppercase text-[10px] tracking-widest">
                             <i class="fas fa-paper-plane mr-1"></i> Submit naar Manager
                         </button>
                     </div>
@@ -71,7 +91,7 @@
                         <h2 class="text-[10px] font-black text-white uppercase tracking-widest">Wachtrij (Outbox)</h2>
                         <span id="outbox-count" class="text-[10px] bg-sky-500 text-dark px-2 rounded-full font-bold">0</span>
                     </div>
-                    <div id="outbox-list" class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2"></div>
+                    <div id="outbox-list" class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 text-[10px]"></div>
                 </div>
 
                 <!-- Systeem Log -->
@@ -89,7 +109,7 @@
                 <div class="bg-slate-900 border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
                     <div class="px-6 py-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                         <h2 class="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
-                            <i class="fas fa-hdd text-sky-400"></i> Dexie Local Cache <span class="text-[10px] text-gray-500 font-normal ml-2 lowercase">(Optimistic View)</span>
+                            <i class="fas fa-hdd text-sky-400"></i> Dexie Local Cache <span class="text-[10px] text-gray-500 font-normal ml-2 lowercase">(Klik op item om offline te editen)</span>
                         </h2>
                         <button onclick="tester.refreshAll()" class="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 transition-all">
                             <i class="fas fa-sync-alt"></i>
@@ -102,7 +122,7 @@
                 <div class="bg-slate-900 border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
                     <div class="px-6 py-4 border-b border-white/5 bg-sky-500/5 flex justify-between items-center">
                         <h2 class="font-black text-sky-400 text-sm uppercase tracking-widest flex items-center gap-2">
-                            <i class="fas fa-cloud text-sky-400"></i> Server Side Data <span class="text-[10px] text-gray-500 font-normal ml-2 lowercase">(Rechtstreeks van API)</span>
+                            <i class="fas fa-cloud text-sky-400"></i> Server Side Data
                         </h2>
                         <div class="flex items-center gap-2">
                             <button onclick="tester.fetchServerData()" class="px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 rounded-lg text-sky-400 text-[10px] font-black uppercase tracking-widest transition-all">
@@ -124,7 +144,7 @@
                                 </tr>
                             </thead>
                             <tbody id="server-body">
-                                <tr><td colspan="4" class="px-6 py-10 text-center text-gray-600 italic">Klik op 'Force Get' om server data op te halen...</td></tr>
+                                <tr><td colspan="4" class="px-6 py-10 text-center text-gray-600 italic text-[10px]">Klik op 'Force Get' om server data op te halen...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -169,7 +189,7 @@
             async saveDocument(name, data) {
                 const method = data._id ? 'PUT' : 'POST';
                 const url = data._id ? `${this.baseUrl}/api/${this.appName}_${name}/${data._id}` : `${this.baseUrl}/api/${this.appName}_${name}`;
-                await new Promise(r => setTimeout(r, 600)); // Simulatie lag
+                await new Promise(r => setTimeout(r, 600)); 
                 const response = await fetch(url, {
                     method,
                     headers: { 'Content-Type': 'application/json', 'x-client-id': this.clientId },
@@ -195,19 +215,24 @@
                 this.db = new Dexie(`InspectorDB_${clientId}`);
                 this.db.version(1).stores({ data: "++id, collection, _id", outbox: "++id, action, collection" });
                 this.onSyncChange = null;
+                this.isOfflineSimulated = false; 
             }
 
             async saveSmartDocument(collection, data) {
                 const record = JSON.parse(JSON.stringify(data));
                 const localRecord = { ...record, collection };
-                if (record.id) localRecord.id = Number(record.id);
-                else if (record._id) {
+                
+                if (record.id) {
+                    localRecord.id = Number(record.id);
+                } else if (record._id) {
                     const existing = await this.db.data.where({ collection, _id: record._id }).first();
                     if (existing) localRecord.id = existing.id;
                 }
+
                 const savedId = await this.db.data.put(localRecord);
                 localRecord.id = savedId;
                 const action = localRecord._id ? 'PUT' : 'POST';
+                
                 if (action === 'POST') {
                     const pending = await this.db.outbox.where({ collection, action: 'POST' }).filter(o => o.payload.id === savedId).first();
                     if (pending) await this.db.outbox.update(pending.id, { payload: localRecord });
@@ -215,7 +240,8 @@
                 } else {
                     await this.db.outbox.add({ action, collection, payload: localRecord });
                 }
-                if (navigator.onLine) this.syncOutbox();
+                
+                if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
                 return localRecord;
             }
 
@@ -225,15 +251,17 @@
                 await this.db.data.where({ collection }).filter(i => String(i._id || i.id) === String(id)).delete();
                 if (serverId) await this.db.outbox.add({ action: 'DELETE', collection, payload: { _id: serverId } });
                 else await this.db.outbox.where({ collection }).filter(o => String(o.payload.id) === String(id)).delete();
-                if (navigator.onLine) this.syncOutbox();
+                
+                if (navigator.onLine && !this.isOfflineSimulated) this.syncOutbox();
             }
 
             async syncOutbox() {
-                if (!navigator.onLine) return;
+                if (!navigator.onLine || this.isOfflineSimulated) return;
                 const items = await this.db.outbox.orderBy('id').toArray();
                 if (this.onSyncChange) this.onSyncChange(items.length);
                 if (items.length === 0) return;
                 for (const item of items) {
+                    if (this.isOfflineSimulated) break;
                     try {
                         if (item.action === 'DELETE') await this.gateway.deleteDocument(item.collection, item.payload._id);
                         else {
@@ -255,15 +283,16 @@
         class TestApp {
             constructor() {
                 this.manager = new OfflineManager('http://10.10.2.20:5000', 'sandman', 'inspector');
+                this.editingItem = null; 
                 this.init();
             }
 
             init() {
                 this.manager.onSyncChange = (c) => this.updateSyncUI(c);
-                window.addEventListener('online', () => this.updateConnUI(true));
-                window.addEventListener('offline', () => this.updateConnUI(false));
+                window.addEventListener('online', () => this.updateConnUI());
+                window.addEventListener('offline', () => this.updateConnUI());
+                this.updateConnUI();
                 setInterval(() => { this.renderDB(); this.renderOutbox(); this.renderJSON(); }, 1500);
-                this.log("Inspector opgestart.");
             }
 
             log(m, t='info') {
@@ -274,10 +303,22 @@
                 el.prepend(d);
             }
 
-            updateConnUI(o) {
-                const el = document.getElementById('connection-status');
-                el.innerHTML = o ? '<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>Online' : '<div class="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Offline';
-                if(o) this.manager.syncOutbox();
+            setConnectivity(isOnline) {
+                this.manager.isOfflineSimulated = !isOnline;
+                this.log(`Modus: ${isOnline ? 'ONLINE' : 'OFFLINE'}`, isOnline ? 'success' : 'error');
+                this.updateConnUI();
+                if (isOnline) this.manager.syncOutbox();
+            }
+
+            updateConnUI() {
+                const btnOnline = document.getElementById('btn-set-online');
+                const btnOffline = document.getElementById('btn-set-offline');
+                const isActuallyOnline = navigator.onLine;
+                const isSimulatedOffline = this.manager.isOfflineSimulated;
+                btnOnline.classList.remove('active-online');
+                btnOffline.classList.remove('active-offline');
+                if (!isSimulatedOffline && isActuallyOnline) btnOnline.classList.add('active-online');
+                else btnOffline.classList.add('active-offline');
             }
 
             updateSyncUI(c) {
@@ -285,19 +326,65 @@
                 document.getElementById('outbox-count').innerText = c;
             }
 
+            /**
+             * Bereidt het formulier voor op een bewerking
+             */
+            startEdit(item) {
+                this.editingItem = item;
+                
+                document.getElementById('test-collection').value = item.collection || item.col;
+                document.getElementById('test-title').value = item.title;
+                document.getElementById('test-content').value = item.content || item.description || '';
+                
+                // UI Updates
+                const isServerItem = !!item._id;
+                document.getElementById('form-title').innerHTML = `<i class="fas fa-edit text-amber-500"></i> ${isServerItem ? 'Server Edit' : 'Local Edit'}`;
+                document.getElementById('btn-submit').innerHTML = '<i class="fas fa-check mr-1"></i> Update doorsturen';
+                document.getElementById('btn-submit').classList.replace('bg-sky-500', 'bg-amber-500');
+                document.getElementById('btn-cancel-edit').classList.remove('hidden');
+                document.getElementById('edit-id-display').classList.remove('hidden');
+                document.getElementById('current-edit-id').innerText = isServerItem ? `_id: ${item._id}` : `Dexie: ${item.id}`;
+                document.getElementById('form-container').classList.add('ring-2', 'ring-amber-500/20');
+                
+                this.log(`Bewerken gestart: ${item.title} (${isServerItem ? 'Server' : 'Offline'})`, 'success');
+            }
+
+            cancelEdit() {
+                this.editingItem = null;
+                document.getElementById('test-title').value = '';
+                document.getElementById('test-content').value = '';
+                
+                // UI Reset
+                document.getElementById('form-title').innerHTML = '<i class="fas fa-plus text-sky-400"></i> Directe Invoer';
+                document.getElementById('btn-submit').innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Submit naar Manager';
+                document.getElementById('btn-submit').classList.replace('bg-amber-500', 'bg-sky-500');
+                document.getElementById('btn-cancel-edit').classList.add('hidden');
+                document.getElementById('edit-id-display').classList.add('hidden');
+                document.getElementById('form-container').classList.remove('ring-2', 'ring-amber-500/20');
+            }
+
             async saveItem() {
                 const col = document.getElementById('test-collection').value;
                 const title = document.getElementById('test-title').value;
                 const content = document.getElementById('test-content').value;
                 if(!title) return;
-                this.log(`Save gestart: ${title}`);
-                await this.manager.saveSmartDocument(col, { title, content });
-                document.getElementById('test-title').value = '';
-                document.getElementById('test-content').value = '';
+
+                const data = { title, content };
+                
+                // Als we een item bewerken, behouden we de ID's
+                if (this.editingItem) {
+                    if (this.editingItem._id) data._id = this.editingItem._id;
+                    if (this.editingItem.id) data.id = this.editingItem.id;
+                    this.log(`Update voor: ${title} (${data._id ? 'Server' : 'Local'})`);
+                } else {
+                    this.log(`Nieuwe save: ${title}`);
+                }
+
+                await this.manager.saveSmartDocument(col, data);
+                this.cancelEdit();
             }
 
             async fetchServerData() {
-                this.log("Server data ophalen...", "success");
                 const body = document.getElementById('server-body');
                 body.innerHTML = '<tr><td colspan="4" class="px-6 py-4 animate-pulse">Laden...</td></tr>';
                 try {
@@ -308,73 +395,53 @@
                         ...notes.map(n => ({ ...n, col: 'test_notes' }))
                     ];
                     if (all.length === 0) {
-                        body.innerHTML = '<tr><td colspan="4" class="px-6 py-10 text-center text-gray-600 italic text-xs">De server collecties zijn leeg.</td></tr>';
+                        body.innerHTML = '<tr><td colspan="4" class="px-6 py-10 text-center text-gray-600 italic text-[10px]">Server is leeg.</td></tr>';
                         return;
                     }
-                    body.innerHTML = all.map(i => `
-                        <tr class="hover:bg-white/5 transition-colors group">
+                    body.innerHTML = all.map(i => {
+                        const itemJson = encodeURIComponent(JSON.stringify(i));
+                        return `
+                        <tr onclick="tester.startEdit(JSON.parse(decodeURIComponent('${itemJson}')))" class="clickable hover:bg-white/5 transition-colors group">
                             <td class="px-6 py-3 border-b border-white/5"><span class="text-[9px] px-1.5 py-0.5 bg-white/5 rounded text-gray-500">${i.col}</span></td>
                             <td class="px-6 py-3 border-b border-white/5 font-mono text-sky-400 text-[10px]">${i._id}</td>
                             <td class="px-6 py-3 border-b border-white/5 font-bold text-white">${i.title}</td>
                             <td class="px-6 py-3 border-b border-white/5 text-gray-500 truncate max-w-[200px]">${i.content || i.description || '-'}</td>
-                        </tr>
-                    `).join('');
-                } catch(e) {
-                    body.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-rose-500">Error: ${e.message}</td></tr>`;
-                }
+                        </tr>`;
+                    }).join('');
+                } catch(e) { body.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-rose-500">Error: ${e.message}</td></tr>`; }
             }
 
-            /**
-             * Wist alle data op de server voor de actieve test collecties.
-             */
             async clearServerData() {
-                if (!confirm("Weet je zeker dat je ALLE data op de server wilt wissen voor 'test_tasks' en 'test_notes'?")) return;
-                
-                this.log("Server opschonen gestart...", "error");
-                const body = document.getElementById('server-body');
-                body.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-rose-500 animate-pulse font-bold">SERVER WORDT GEWIST...</td></tr>';
-                
-                try {
-                    const collections = ['test_tasks', 'test_notes'];
-                    let deletedCount = 0;
-
-                    for (const colName of collections) {
-                        const items = await this.manager.gateway.getCollection(colName);
-                        for (const item of items) {
-                            if (item._id) {
-                                await this.manager.gateway.deleteDocument(colName, item._id);
-                                deletedCount++;
-                            }
-                        }
-                    }
-                    
-                    this.log(`Server is schoon! ${deletedCount} items verwijderd.`, "success");
-                    await this.fetchServerData();
-                } catch (e) {
-                    this.log("Fout bij wissen server: " + e.message, "error");
-                    this.fetchServerData();
+                if (!confirm("Server data volledig wissen?")) return;
+                const collections = ['test_tasks', 'test_notes'];
+                for (const colName of collections) {
+                    const items = await this.manager.gateway.getCollection(colName);
+                    for (const item of items) { if (item._id) await this.manager.gateway.deleteDocument(colName, item._id); }
                 }
+                this.fetchServerData();
             }
 
             async renderDB() {
                 const items = await this.manager.db.data.toArray();
                 const container = document.getElementById('db-list');
-                if (items.length === 0) { container.innerHTML = `<div class="col-span-full text-center text-gray-600 py-10 italic text-[10px]">Lokaal leeg.</div>`; return; }
-                container.innerHTML = items.map(item => `
-                    <div class="bg-black/30 border border-white/5 p-3 rounded-2xl flex justify-between items-center group">
+                if (items.length === 0) { container.innerHTML = `<div class="col-span-full text-center text-gray-600 py-10 italic text-[10px]">Dexie is leeg.</div>`; return; }
+                container.innerHTML = items.map(item => {
+                    const itemJson = encodeURIComponent(JSON.stringify(item));
+                    return `
+                    <div onclick="tester.startEdit(JSON.parse(decodeURIComponent('${itemJson}')))" class="card-clickable bg-black/30 border border-white/5 p-3 rounded-2xl flex justify-between items-center group shadow-lg hover:border-sky-500/40">
                         <div class="min-w-0">
                             <h3 class="text-[11px] font-bold text-white truncate">${item.title}</h3>
-                            <p class="text-[9px] text-gray-500 mono">D_ID: ${item.id} | S_ID: <span class="${item._id?'text-emerald-500':'text-amber-500'}">${item._id||'Pending'}</span></p>
+                            <p class="text-[9px] text-gray-500 mono">D_ID: ${item.id} | S_ID: <span class="${item._id?'text-emerald-500 font-bold':'text-amber-500'}">${item._id||'Pending'}</span></p>
                         </div>
-                        <button onclick="tester.deleteItem('${item.collection}', '${item._id || item.id}')" class="p-2 text-gray-700 hover:text-rose-500"><i class="fas fa-times"></i></button>
-                    </div>
-                `).join('');
+                        <button onclick="event.stopPropagation(); tester.deleteItem('${item.collection}', '${item._id || item.id}')" class="p-2 text-gray-700 hover:text-rose-500 transition-all"><i class="fas fa-times"></i></button>
+                    </div>`;
+                }).join('');
             }
 
             async renderOutbox() {
                 const items = await this.manager.db.outbox.toArray();
                 const container = document.getElementById('outbox-list');
-                if (items.length === 0) { container.innerHTML = '<div class="text-[9px] text-gray-600 italic">Leeg.</div>'; return; }
+                if (items.length === 0) { container.innerHTML = '<div class="text-[9px] text-gray-600 italic opacity-40">Geen wachtende taken.</div>'; return; }
                 container.innerHTML = items.map(item => `
                     <div class="p-2 rounded bg-white/5 border-l-2 ${item.action==='DELETE'?'border-rose-500':'border-amber-500'} text-[9px] mono">
                         <span class="font-bold ${item.action==='DELETE'?'text-rose-500':'text-amber-500'}">${item.action}</span> ${item.payload.title || item.payload._id}
@@ -388,22 +455,14 @@
             }
 
             async deleteItem(col, id) { await this.manager.deleteSmartDocument(col, id); }
-            
-            async fullReset() { 
-                if(confirm("Wis de lokale Dexie cache volledig?")) { 
-                    await this.manager.db.data.clear(); await this.manager.db.outbox.clear(); 
-                    this.log("Lokale cache gewist.", "error"); 
-                } 
-            }
+            async fullReset() { if(confirm("Wis Dexie cache?")) { await this.manager.db.data.clear(); await this.manager.db.outbox.clear(); } }
 
             async runStressTest() {
-                this.log("STRESS TEST START", "success");
                 const col = 'test_tasks';
-                const first = await this.manager.saveSmartDocument(col, { title: "Stress " + Date.now(), content: "Init" });
+                const first = await this.manager.saveSmartDocument(col, { title: "Stress " + Date.now(), content: "Start" });
                 for(let i=1; i<=5; i++) {
                     setTimeout(async () => {
                         await this.manager.saveSmartDocument(col, { ...first, content: "Update " + i });
-                        this.log(`Stress Update ${i} verzonden`);
                     }, i * 40);
                 }
             }
