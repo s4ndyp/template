@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Gateway Tester Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+        }
+
+        .font-mono {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #020617;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        .animate-pulse-slow {
+            animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+
+        .tab-active {
+            color: #60a5fa;
+            border-bottom: 2px solid #60a5fa;
+            background-color: #1e293b;
+        }
+    </style>
+</head>
+<body class="text-slate-200 p-4 md:p-8">
+    <div class="max-w-6xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <header class="flex items-center justify-between mb-8">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/20">
+                    <i data-lucide="globe" class="text-white w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
+                        API Tester Pro
+                    </h1>
+                    <p class="text-xs text-slate-500 uppercase tracking-widest">Gateway Debugger (Standalone)</p>
+                </div>
+            </div>
+            <div class="hidden md:flex gap-4">
+                <div class="flex items-center gap-2 px-3 py-1 bg-slate-800/50 rounded-full border border-slate-700 text-xs text-slate-400">
+                    <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse-slow"></div>
+                    Systeem Online
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Main Request Panel -->
+            <div class="lg:col-span-8 space-y-6">
+                
+                <!-- Request Bar -->
+                <div class="bg-slate-800/40 border border-slate-700 p-4 rounded-xl shadow-xl backdrop-blur-sm">
+                    <div class="flex flex-col md:flex-row gap-3">
+                        <div class="relative group min-w-[120px]">
+                            <select id="method-select" 
+                                class="w-full h-12 bg-slate-900 border border-slate-700 rounded-lg px-4 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-blue-400 cursor-pointer">
+                                <option value="GET">GET</option>
+                                <option value="POST">POST</option>
+                                <option value="PUT">PUT</option>
+                                <option value="PATCH">PATCH</option>
+                                <option value="DELETE">DELETE</option>
+                            </select>
+                            <i data-lucide="chevron-down" class="absolute right-3 top-3.5 w-5 h-5 text-slate-500 pointer-events-none group-hover:text-blue-400 transition-colors"></i>
+                        </div>
+                        
+                        <div class="flex-1 relative">
+                            <input type="text" id="url-input" 
+                                value="https://jsonplaceholder.typicode.com/posts"
+                                placeholder="Voer API Host URL in..."
+                                class="w-full h-12 bg-slate-900 border border-slate-700 rounded-lg px-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-300 placeholder:text-slate-600"
+                            />
+                        </div>
+
+                        <button id="send-btn"
+                            class="h-12 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold px-8 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20">
+                            <span id="btn-content" class="flex items-center gap-2">
+                                <i data-lucide="send" class="w-4 h-4"></i>
+                                <span>Verstuur</span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Request Configuration Tabs -->
+                <div class="bg-slate-800/40 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+                    <div class="flex border-b border-slate-700 bg-slate-800/60">
+                        <button id="tab-body" onclick="switchTab('body')" class="tab-active px-6 py-3 text-sm font-medium transition-colors">
+                            Body (Payload)
+                        </button>
+                        <button id="tab-headers" onclick="switchTab('headers')" class="px-6 py-3 text-sm font-medium transition-colors text-slate-500 hover:text-slate-300">
+                            Headers
+                        </button>
+                    </div>
+
+                    <div class="p-4 bg-slate-900/50">
+                        <!-- Body Tab Content -->
+                        <div id="content-body" class="space-y-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs text-slate-500 font-mono">JSON INPUT</span>
+                                <button onclick="askAi('payload')" id="ai-gen-btn"
+                                    class="text-xs flex items-center gap-1.5 text-blue-400 hover:text-blue-300 transition-colors">
+                                    <i data-lucide="cpu" class="w-3 h-3"></i>
+                                    <span>Genereer test data</span>
+                                </button>
+                            </div>
+                            <textarea id="body-input"
+                                class="w-full h-64 bg-slate-950 text-emerald-400 font-mono text-sm p-4 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-900 resize-none shadow-inner"
+                                placeholder='{"key": "value"}'
+                            >{"title": "foo", "body": "bar", "userId": 1}</textarea>
+                        </div>
+
+                        <!-- Headers Tab Content -->
+                        <div id="content-headers" class="hidden space-y-3 min-h-[256px]">
+                            <div class="grid grid-cols-12 gap-2 mb-2 px-1 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                                <div class="col-span-5">Key</div>
+                                <div class="col-span-6">Value</div>
+                            </div>
+                            <div id="headers-list" class="space-y-2">
+                                <!-- Dynamic Headers go here -->
+                            </div>
+                            <button onclick="addHeaderRow()"
+                                class="mt-2 flex items-center gap-2 text-xs text-blue-400 hover:text-blue-300 font-medium px-1 py-1">
+                                <i data-lucide="plus" class="w-3 h-3"></i> Header Toevoegen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Response Section -->
+                <div id="response-container" class="hidden bg-slate-800/40 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+                    <div class="flex items-center justify-between p-4 bg-slate-800/60 border-b border-slate-700">
+                        <div class="flex items-center gap-6">
+                            <div class="flex items-center gap-2">
+                                <div id="status-dot" class="w-2.5 h-2.5 rounded-full"></div>
+                                <span id="status-text" class="font-bold"></span>
+                            </div>
+                            <div class="flex items-center gap-2 text-slate-400 text-sm">
+                                <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                                <span id="resp-time"></span>ms
+                            </div>
+                        </div>
+                        <button onclick="askAi('explain')" id="ai-explain-btn"
+                            class="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors border border-slate-600">
+                            <i data-lucide="cpu" class="w-3.5 h-3.5 text-blue-400"></i>
+                            Leg response uit
+                        </button>
+                    </div>
+                    
+                    <div class="p-4 bg-slate-950">
+                        <div id="ai-analysis-box" class="hidden mb-4 p-4 bg-blue-900/10 border border-blue-900/30 rounded-lg text-sm text-blue-200 leading-relaxed italic">
+                            <div class="flex items-center gap-2 mb-2 not-italic font-bold text-blue-400">
+                                <i data-lucide="cpu" class="w-4 h-4"></i> AI Analyse:
+                            </div>
+                            <p id="ai-analysis-text"></p>
+                        </div>
+                        <pre id="response-output" class="text-sm font-mono text-slate-300 overflow-auto max-h-[500px] p-2 custom-scrollbar"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="lg:col-span-4 space-y-6">
+                
+                <!-- History Panel -->
+                <div class="bg-slate-800/40 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+                    <div class="p-4 border-b border-slate-700 flex items-center justify-between">
+                        <div class="flex items-center gap-2 text-slate-300 font-bold">
+                            <i data-lucide="history" class="w-4 h-4 text-blue-400"></i>
+                            Geschiedenis
+                        </div>
+                        <button onclick="clearHistory()"
+                            class="text-[10px] text-slate-500 hover:text-red-400 transition-colors uppercase font-bold tracking-tighter">
+                            Clear
+                        </button>
+                    </div>
+                    <div id="history-list" class="p-2 space-y-1 max-h-[400px] overflow-y-auto">
+                        <div class="p-8 text-center text-slate-600 text-sm">Nog geen geschiedenis.</div>
+                    </div>
+                </div>
+
+                <!-- Tips -->
+                <div class="bg-gradient-to-br from-blue-900/20 to-purple-900/20 border border-blue-900/30 p-4 rounded-xl">
+                    <div class="flex items-center gap-2 mb-3 text-blue-400">
+                        <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                        <h3 class="font-bold text-sm">Quick Tips</h3>
+                    </div>
+                    <p class="text-xs text-slate-400 leading-relaxed mb-3">
+                        Lokaal testen? Vergeet niet dat je browser <b>CORS</b> blokkeert tenzij je API de juiste headers meestuurt.
+                    </p>
+                    <ul class="space-y-2">
+                        <li class="flex items-center gap-2 text-[10px] text-slate-500">
+                            <i data-lucide="check-circle-2" class="w-3 h-3 text-blue-500"></i> Gebruik AI voor payloads.
+                        </li>
+                        <li class="flex items-center gap-2 text-[10px] text-slate-500">
+                            <i data-lucide="check-circle-2" class="w-3 h-3 text-blue-500"></i> JSON wordt automatisch geformatteerd.
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // State management
+        const state = {
+            headers: [{ key: 'Content-Type', value: 'application/json' }],
+            history: JSON.parse(localStorage.getItem('api_history') || '[]'),
+            lastResponse: null,
+            apiKey: ""
+        };
+
+        // Initialize icons
+        lucide.createIcons();
+
+        // DOM elements
+        const elements = {
+            url: document.getElementById('url-input'),
+            method: document.getElementById('method-select'),
+            body: document.getElementById('body-input'),
+            headersList: document.getElementById('headers-list'),
+            sendBtn: document.getElementById('send-btn'),
+            btnContent: document.getElementById('btn-content'),
+            respContainer: document.getElementById('response-container'),
+            respOutput: document.getElementById('response-output'),
+            respTime: document.getElementById('resp-time'),
+            statusDot: document.getElementById('status-dot'),
+            statusText: document.getElementById('status-text'),
+            historyList: document.getElementById('history-list'),
+            aiAnalysisBox: document.getElementById('ai-analysis-box'),
+            aiAnalysisText: document.getElementById('ai-analysis-text')
+        };
+
+        // Render functions
+        function renderHeaders() {
+            elements.headersList.innerHTML = '';
+            state.headers.forEach((h, index) => {
+                const row = document.createElement('div');
+                row.className = 'grid grid-cols-12 gap-2 items-center group';
+                row.innerHTML = `
+                    <input type="text" value="${h.key}" onchange="updateHeader(${index}, 'key', this.value)" 
+                        placeholder="Key" class="col-span-5 bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    <input type="text" value="${h.value}" onchange="updateHeader(${index}, 'value', this.value)" 
+                        placeholder="Value" class="col-span-6 bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    <button onclick="removeHeader(${index})" class="col-span-1 flex justify-center text-slate-600 hover:text-red-400 transition-colors">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                `;
+                elements.headersList.appendChild(row);
+            });
+            lucide.createIcons();
+        }
+
+        function renderHistory() {
+            if (state.history.length === 0) {
+                elements.historyList.innerHTML = '<div class="p-8 text-center text-slate-600 text-sm">Nog geen geschiedenis.</div>';
+                return;
+            }
+            elements.historyList.innerHTML = '';
+            state.history.forEach((item, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full text-left p-3 rounded-lg hover:bg-slate-700/50 transition-all border border-transparent hover:border-slate-600 group';
+                btn.onclick = () => {
+                    elements.url.value = item.url;
+                    elements.method.value = item.method;
+                };
+                
+                const methodColor = item.method === 'GET' ? 'bg-green-900/40 text-green-400' : 
+                                   item.method === 'POST' ? 'bg-blue-900/40 text-blue-400' : 'bg-orange-900/40 text-orange-400';
+
+                btn.innerHTML = `
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${methodColor}">${item.method}</span>
+                        <span class="text-[10px] text-slate-500">${item.time}</span>
+                    </div>
+                    <div class="text-xs text-slate-400 truncate font-mono">${item.url}</div>
+                    <div class="text-[10px] mt-1 ${item.status < 400 ? 'text-green-600' : 'text-red-600'}">Status: ${item.status}</div>
+                `;
+                elements.historyList.appendChild(btn);
+            });
+        }
+
+        // Logic functions
+        function updateHeader(index, field, val) {
+            state.headers[index][field] = val;
+        }
+
+        function addHeaderRow() {
+            state.headers.push({ key: '', value: '' });
+            renderHeaders();
+        }
+
+        function removeHeader(index) {
+            state.headers.splice(index, 1);
+            renderHeaders();
+        }
+
+        function switchTab(tab) {
+            document.getElementById('tab-body').className = (tab === 'body' ? 'tab-active' : 'text-slate-500 hover:text-slate-300') + ' px-6 py-3 text-sm font-medium transition-colors';
+            document.getElementById('tab-headers').className = (tab === 'headers' ? 'tab-active' : 'text-slate-500 hover:text-slate-300') + ' px-6 py-3 text-sm font-medium transition-colors';
+            
+            document.getElementById('content-body').classList.toggle('hidden', tab !== 'body');
+            document.getElementById('content-headers').classList.toggle('hidden', tab !== 'headers');
+        }
+
+        function formatJSON(val) {
+            try {
+                if (typeof val === 'string') return JSON.stringify(JSON.parse(val), null, 2);
+                return JSON.stringify(val, null, 2);
+            } catch (e) {
+                return val;
+            }
+        }
+
+        function clearHistory() {
+            state.history = [];
+            localStorage.setItem('api_history', '[]');
+            renderHistory();
+        }
+
+        // Core Request Logic
+        async function sendRequest() {
+            const url = elements.url.value;
+            const method = elements.method.value;
+            const body = elements.body.value;
+
+            setLoading(true);
+            elements.respContainer.classList.add('hidden');
+            elements.aiAnalysisBox.classList.add('hidden');
+            
+            const startTime = Date.now();
+            const headerObj = {};
+            state.headers.forEach(h => { if(h.key) headerObj[h.key] = h.value; });
+
+            try {
+                const options = { method, headers: headerObj };
+                if (['POST', 'PUT', 'PATCH'].includes(method)) options.body = body;
+
+                const res = await fetch(url, options);
+                const duration = Date.now() - startTime;
+                
+                let data;
+                const contentType = res.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    data = await res.json();
+                } else {
+                    data = await res.text();
+                }
+
+                state.lastResponse = { data, status: res.status, ok: res.ok };
+                
+                // Update UI
+                elements.respContainer.classList.remove('hidden');
+                elements.respTime.textContent = duration;
+                elements.statusText.textContent = `${res.status} ${res.statusText}`;
+                elements.statusDot.className = `w-2.5 h-2.5 rounded-full ${res.ok ? 'bg-green-500' : 'bg-red-500'}`;
+                elements.statusText.className = `font-bold ${res.ok ? 'text-green-400' : 'text-red-400'}`;
+                elements.respOutput.textContent = formatJSON(data);
+
+                // Add to history
+                state.history.unshift({
+                    id: Date.now(),
+                    url,
+                    method,
+                    status: res.status,
+                    time: new Date().toLocaleTimeString()
+                });
+                state.history = state.history.slice(0, 10);
+                localStorage.setItem('api_history', JSON.stringify(state.history));
+                renderHistory();
+
+            } catch (err) {
+                elements.respContainer.classList.remove('hidden');
+                elements.statusText.textContent = "Error";
+                elements.statusText.className = "font-bold text-red-500";
+                elements.statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+                elements.respOutput.textContent = `Error: ${err.message}\n\nTip: Controleer CORS instellingen op de server.`;
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function setLoading(isLoading) {
+            elements.sendBtn.disabled = isLoading;
+            elements.btnContent.innerHTML = isLoading ? 
+                '<div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>' :
+                '<i data-lucide="send" class="w-4 h-4"></i><span>Verstuur</span>';
+            lucide.createIcons();
+        }
+
+        // AI Assistant
+        async function askAi(type) {
+            const btn = type === 'payload' ? document.getElementById('ai-gen-btn') : document.getElementById('ai-explain-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<div class="w-3 h-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin"></div> Bezig...';
+            btn.disabled = true;
+
+            const url = elements.url.value;
+            let query = "";
+            if (type === 'payload') query = `Genereer een realistische JSON-payload voor een POST naar ${url}. Antwoord alleen met de JSON.`;
+            else query = `Leg deze API response uit: ${JSON.stringify(state.lastResponse?.data)}`;
+
+            const callGemini = async (retries = 0) => {
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${state.apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: query }] }],
+                            systemInstruction: { parts: [{ text: "Je bent een API-expert. Antwoord beknopt." }] }
+                        })
+                    });
+                    
+                    if (!res.ok && retries < 5) {
+                        await new Promise(r => setTimeout(r, Math.pow(2, retries) * 1000));
+                        return callGemini(retries + 1);
+                    }
+                    const json = await res.json();
+                    return json.candidates?.[0]?.content?.parts?.[0]?.text;
+                } catch (e) {
+                    if (retries < 5) {
+                        await new Promise(r => setTimeout(r, Math.pow(2, retries) * 1000));
+                        return callGemini(retries + 1);
+                    }
+                    return "AI Fout: Kan verbinding niet maken.";
+                }
+            };
+
+            const result = await callGemini();
+            if (type === 'payload') {
+                const jsonMatch = result.match(/\{[\s\S]*\}/);
+                elements.body.value = formatJSON(jsonMatch ? jsonMatch[0] : result);
+            } else {
+                elements.aiAnalysisBox.classList.remove('hidden');
+                elements.aiAnalysisText.textContent = result;
+            }
+
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            lucide.createIcons();
+        }
+
+        // Event listeners
+        elements.sendBtn.addEventListener('click', sendRequest);
+        
+        // Initial render
+        renderHeaders();
+        renderHistory();
+    </script>
+</body>
+</html>
