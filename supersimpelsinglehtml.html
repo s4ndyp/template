@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Mode Testomgeving</title>
+    <style>
+        /* Basis styling voor Dark Mode */
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px;
+            margin: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            background-color: #1e1e1e;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid #333;
+        }
+
+        h1 { color: #bb86fc; }
+        p { line-height: 1.6; color: #b0b0b0; }
+
+        /* Interactieve elementen */
+        .test-area {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        button {
+            background-color: #03dac6;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #018786;
+            transform: scale(1.02);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #444;
+            background-color: #2c2c2c;
+            color: white;
+            outline: none;
+        }
+
+        input[type="text"]:focus {
+            border-color: #bb86fc;
+        }
+
+        .status-box {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #333;
+            font-family: monospace;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>HTML Test Pagina</h1>
+        <p>Dit is een simpele sandbox. Pas de code aan om te zien wat er gebeurt met de layout, kleuren of functionaliteit.</p>
+
+        <div class="test-area">
+            <input type="text" id="userInput" placeholder="Typ hier iets...">
+            
+            <div style="display: flex; gap: 10px;">
+                <button onclick="updateTekst()">Test Knop 1</button>
+                <button onclick="veranderKleur()" style="background-color: #cf6679;">Gevaar Knop</button>
+            </div>
+        </div>
+
+        <div class="status-box" id="statusField">
+            Wachten op actie...
+        </div>
+    </div>
+
+    <script>
+        // Simpele functies om te testen of JS goed werkt
+        function updateTekst() {
+            const input = document.getElementById('userInput').value;
+            const status = document.getElementById('statusField');
+            status.innerText = input ? "Je typte: " + input : "Je hebt niets ingevuld!";
+            status.style.color = "#bb86fc";
+        }
+
+        function veranderKleur() {
+            const status = document.getElementById('statusField');
+            status.innerText = "Systeem check uitgevoerd!";
+            status.style.color = "#cf6679";
+            console.log("Kleur veranderd via JS");
+        }
+    </script>
+
+</body>
+</html>
